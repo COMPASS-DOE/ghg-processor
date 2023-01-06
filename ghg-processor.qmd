@@ -1,0 +1,182 @@
+---
+title: "GHG processor"
+author: "Bond-Lamberty / Wilson"
+title-block-banner: true
+params:
+  html_outfile: "ghg-processor.html"
+  data_folder: "test/"
+  output_folder: "output/"
+  metadata_folder: "test/"
+  logfile: ""
+date: now
+date-format: "YYYY-MM-DD HH:mm:ssZ"
+format: 
+  html:
+    code-fold: true
+editor: visual
+---
+
+## Initializing
+
+```{r}
+suppressPackageStartupMessages({
+  library(readr)
+  library(lubridate)
+  library(ggplot2)
+  library(readxl)
+})
+theme_set(theme_bw())
+
+data_files <- list.files(params$data_folder, 
+                         pattern = "*txt$", 
+                         full.names = TRUE, recursive = TRUE)
+metadata_files <- list.files(params$metadata_folder, 
+                             pattern = "*xlsx$", 
+                             full.names = TRUE, recursive = TRUE)
+```
+
+I see `r length(data_files)` data files to process.
+
+I see `r length(metadata_files)` metadata files to process.
+
+Writing output to `r normalizePath(params$output_folder)`.
+
+HTML outfile is `r params$html_outfile`.
+
+Logfile is `r params$logfile`.
+
+Working directory is `r getwd()`.
+
+## Read in GHG data
+
+```{r}
+errors <- 0
+
+read_ghg_data <- function(fn) {
+  basefn <- basename(fn)
+  message(Sys.time(), " Processing ", basefn)
+  
+  dat_raw <- readLines(fn)
+  
+  # These files have five header lines, the names of the columns in line 6,
+  # and then the column units in line 7
+  dat <- try({
+    readr::read_table(I(dat_raw[-c(1,2,3,4,5,7)]), na = "nan")
+  })
+  
+  if(is.data.frame(dat)) {
+    # Save the serial number in case we want to look at machine differences later
+    message("\tRead in ", nrow(dat), " rows of data")
+    message("\tDates: ", min(dat$DATE), " to ", max(dat$DATE))
+    sn <- gsub("SN:\t", "", dat_raw[2], fixed = TRUE)
+    message("\tInstrument serial number: ", sn)
+    dat$SN <- sn
+    # Parse the timezone from the header and use it to make a TIMESTAMP field
+    tz <- gsub("Timezone:\t", "", dat_raw[5], fixed = TRUE)
+    message("\tInstrument time zone: ", tz)
+    dat$TIMESTAMP <- lubridate::ymd_hms(paste(dat$DATE, dat$TIME), tz = tz)
+    dat$DATE <- dat$TIME <- NULL
+  } else {
+    warning("File read error for ", basefn)
+    errors <<- errors + 1
+    dat <- NULL
+  }
+
+  dat
+}
+
+dat <- lapply(data_files, read_ghg_data)
+dat <- do.call("rbind", dat)
+
+neg_CO2 <- sum(dat$CO2 < 0, na.rm = TRUE)
+```
+
+Errors: `r errors`
+
+Total observations: `r nrow(dat)`
+
+Observations with negative CO2: `r neg_CO2` (`r round(neg_CO2 / nrow(dat) * 100, 0)`%)
+
+## Overall CO2 and CH4 data
+
+Distribution of CO2 values:
+
+```{r}
+OVERALL_PLOT_N <- 300
+summary(dat$CO2)
+```
+
+Plot of random `r OVERALL_PLOT_N` CO2 values (y axis 10%-90%):
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+
+ylim <- quantile(dat$CO2, probs = c(0.1, 0.9), na.rm = TRUE)
+
+dat_small <- dat[sample.int(nrow(dat), OVERALL_PLOT_N, replace = TRUE),]
+ggplot(dat_small, aes(TIMESTAMP, CO2)) + 
+  geom_point(na.rm = TRUE) +
+  coord_cartesian(ylim = ylim)
+```
+
+Distribution of CH4 values:
+
+```{r}
+summary(dat$CH4)
+```
+
+Plot of random `r OVERALL_PLOT_N` CH4 values (y axis 10%-90%):
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+
+ylim <- quantile(dat$CH4, probs = c(0.1, 0.9), na.rm = TRUE)
+
+dat_small <- dat[sample.int(nrow(dat), 200, replace = TRUE),]
+ggplot(dat_small, aes(TIMESTAMP, CH4)) + 
+  geom_point(na.rm = TRUE) +
+  coord_cartesian(ylim = ylim)
+```
+
+## Read in metadata
+
+```{r}
+errors <- 0
+
+read_metadata <- function(fn) {
+  basefn <- basename(fn)
+  message(Sys.time(), " Processing ", basefn)
+  
+  metadat_raw <- try({
+    read_excel(fn)
+  })
+  
+  if(is.data.frame(metadat_raw)) {
+    # What?
+    metadat <- metadat_raw
+  } else {
+    warning("File read error for ", basefn)
+    errors <<- errors + 1
+    metadat <- NULL
+  }
+
+  metadat
+}
+
+metadat <- lapply(metadata_files, read_metadata)
+metadat <- do.call("rbind", metadat)
+```
+
+Errors: `r errors`
+
+Total rows: `r nrow(metadat)`
+
+## Overall metadata
+
+## Reproducibility
+
+```{r}
+sessionInfo()
+```

@@ -40,3 +40,8 @@ vignettes/*.pdf
 
 # OS files
 .DS_Store
+
+# Quarto and RPubs files
+ghg-processor_files/*
+*.dcf
+*.html
