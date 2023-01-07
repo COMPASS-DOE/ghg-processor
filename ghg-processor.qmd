@@ -69,8 +69,8 @@ read_ghg_data <- function(fn) {
   
   if(is.data.frame(dat)) {
     # Save the serial number in case we want to look at machine differences later
-    message("\tRead in ", nrow(dat), " rows of data")
-    message("\tDates: ", min(dat$DATE), " to ", max(dat$DATE))
+    message("\tRead in ", nrow(dat), " rows of data, ", 
+            min(dat$DATE), " to ", max(dat$DATE))
     sn <- gsub("SN:\t", "", dat_raw[2], fixed = TRUE)
     message("\tInstrument serial number: ", sn)
     dat$SN <- sn
@@ -95,6 +95,13 @@ neg_CO2 <- sum(dat$CO2 < 0, na.rm = TRUE)
 ```
 
 Errors: `r errors`
+
+```{r}
+#| echo: false
+#| output: asis
+
+if(!errors) cat("**<span style='color:red'>---> At least one error occurred! <---</span>**")
+```
 
 Total observations: `r nrow(dat)`
 
@@ -181,6 +188,8 @@ Total rows: `r nrow(metadat)`
 ## Metadata-data matching
 
 ```{r}
+# For each row of metadata, find corresponding observational data
+zero_match <- FALSE
 matched_dat <- list()
 for(i in seq_len(nrow(metadat))) {
   ts <- metadat$Time_start[i]
@@ -188,18 +197,26 @@ for(i in seq_len(nrow(metadat))) {
   start_time <- metadat$Date[i] + hour(ts) * 60 * 60 + minute(ts) * 60 + second(ts)
   end_time <- start_time + params$msmt_length_min * 60
   
+  # Subset data following timestsamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP <= end_time)
+  if(!nrow(x)) zero_match <- TRUE
   x$row <- i
   x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
   matched_dat[[i]] <- x
   message("Metadata row ", i, " start time = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
 }
 
+# Combine all subsetted data together and merge with metadata 
 combined_dat <- do.call("rbind", matched_dat)
 combined_dat <- merge(metadat, combined_dat, by = "row")
 ```
 
-Metadata rows with no matching data: (TODO)
+```{r}
+#| echo: false
+#| output: asis
+
+if(zero_match) cat("**<span style='color:red'>---> At least one metadata row had no matching data! <---</span>**")
+```
 
 ## Observations by plot and day
 
@@ -207,9 +224,11 @@ Metadata rows with no matching data: (TODO)
 #| fig-width: 8
 ggplot(combined_dat, aes(ELAPSED_SECS, CO2, color = Plot, group = row)) + 
   geom_point(na.rm = TRUE) +
-  facet_wrap(~Plot, scales = "free")# +
-#  facet_wrap(~date(TIMESTAMP)) +
-#  coord_cartesian(ylim = ylim_co2)
+  facet_wrap(~Plot, scales = "free")
+
+ggplot(combined_dat, aes(ELAPSED_SECS, CH4, color = Plot, group = row)) + 
+  geom_point(na.rm = TRUE) +
+  facet_wrap(~Plot, scales = "free")
 ```
 
 ## Flux computation
