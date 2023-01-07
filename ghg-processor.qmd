@@ -42,13 +42,13 @@ I see `r length(metadata_files)` metadata files to process.
 
 Measurement length is `r params$msmt_length_min` minutes.
 
-Writing output to `r normalizePath(params$output_folder)`.
+Writing output to ``r normalizePath(params$output_folder)``.
 
-HTML outfile is `r params$html_outfile`.
+HTML outfile is ``r params$html_outfile``.
 
-Logfile is `r params$logfile`.
+Logfile is ``r params$logfile``.
 
-Working directory is `r getwd()`.
+Working directory is ``r getwd()``.
 
 ## Read in GHG data
 
@@ -100,7 +100,7 @@ Errors: `r errors`
 #| echo: false
 #| output: asis
 
-if(!errors) cat("**<span style='color:red'>---> At least one error occurred! <---</span>**")
+if(errors) cat("**<span style='color:red'>---> At least one error occurred! <---</span>**")
 ```
 
 Total observations: `r nrow(dat)`
@@ -197,13 +197,13 @@ for(i in seq_len(nrow(metadat))) {
   start_time <- metadat$Date[i] + hour(ts) * 60 * 60 + minute(ts) * 60 + second(ts)
   end_time <- start_time + params$msmt_length_min * 60
   
-  # Subset data following timestsamp in metadata and store
-  x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP <= end_time)
+  # Subset data following timestamp in metadata and store
+  x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
   if(!nrow(x)) zero_match <- TRUE
   x$row <- i
   x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
   matched_dat[[i]] <- x
-  message("Metadata row ", i, " start time = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
+  message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
 }
 
 # Combine all subsetted data together and merge with metadata 
@@ -234,6 +234,8 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, color = Plot, group = row)) +
 ## Flux computation
 
 ## QA/QC
+
+## Output
 
 ## Reproducibility
 
