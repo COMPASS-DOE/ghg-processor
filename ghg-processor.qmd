@@ -25,6 +25,8 @@ suppressPackageStartupMessages({
   library(lubridate)
   library(ggplot2)
   library(readxl)
+  library(broom)
+  library(DT)
 })
 theme_set(theme_bw())
 
@@ -251,19 +253,67 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
 
 ```{r}
 
-# Change units
+# Change units - todo
 
-fit_model <- function(df) {
-  
+model_fit_error <- FALSE
+fit_model <- function(df, depvar) {
+  message("Fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
+  # Metadata
+  info <- data.frame(Obs = df$Obs[1],
+                     TIMESTAMP = mean(df$TIMESTAMP),
+                     TZ = df$TZ[1],
+                     SN = df$SN[1])
+  # Fit a linear model
+  try(mod <- lm(df[,depvar] ~ df[,"ELAPSED_SECS"]))
+  if(!exists("mod")) {
+    message("\tERROR!")
+    model_fit_error <- model_fit_error & FALSE
+  }
+  # Model statistics
+  model_stats <- glance(mod)
+  model_stats$Gas <- depvar
+  # Slope (flux) statistics
+  slope_stats <- tidy(mod)[2,-1]
+  names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
+  cbind(info, model_stats, slope_stats)
 }
-# Fit model
+results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2")
+results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4")
+results <- do.call("rbind", c(results_co2, results_ch4))
+# Re-merge with metadata
+results <- merge(results, metadat, by = "Obs")
+```
 
-# Use broom::tidy and glance to collect data on the model
 
+```{r}
+#| echo: false
+#| output: asis
 
+if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn't fit! <---</span>**")
 ```
 
 ## QA/QC
+
+Lots of possibilities here...
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+
+formatRound(datatable(results),
+            which(sapply(results, is.numeric)), digits = 3)
+
+ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) + 
+  geom_point() + 
+  geom_errorbar(aes(ymin = flux_estimate - flux_std.error,
+                    ymax = flux_estimate + flux_std.error)) +
+  facet_wrap(~Gas, scales = "free")
+
+ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
+  geom_point() + 
+  facet_wrap(~Gas, scales = "free")
+```
+
 
 ## Output
 
