@@ -75,7 +75,10 @@ read_ghg_data <- function(fn) {
     # Parse the timezone from the header and use it to make a TIMESTAMP field
     tz <- gsub("Timezone:\t", "", dat_raw[5], fixed = TRUE)
     message("\tInstrument time zone: ", tz)
-    dat$TIMESTAMP <- lubridate::ymd_hms(paste(dat$DATE, dat$TIME), tz = tz)
+    # We record the time zone but don't convert the timestamps to it as
+    # that's not needed right now; metadata time is guaranteed to be same
+    dat$TIMESTAMP <- lubridate::ymd_hms(paste(dat$DATE, dat$TIME))
+    dat$TZ <- tz
     dat$DATE <- dat$TIME <- NULL
   } else {
     warning("File read error for ", basefn)
@@ -118,7 +121,8 @@ read_metadata <- function(fn) {
   if(is.data.frame(metadat_raw)) {
     # What?
     metadat_raw$File <- basefn
-    metadat_raw$Date <- force_tz(metadat_raw$Date, "EST")
+    # Note that it's guaranteed that metadata time is instrument time,
+    # so we don't worry about any time zones right now
     metadat <- metadat_raw
   } else {
     warning("File read error for ", basefn)
@@ -131,7 +135,7 @@ read_metadata <- function(fn) {
 
 metadat <- lapply(metadata_files, read_metadata)
 metadat <- do.call("rbind", metadat)
-metadat$row <- seq_len(nrow(metadat))
+metadat$Obs <- seq_len(nrow(metadat))
 ```
 
 Errors: `r errors`
@@ -152,7 +156,7 @@ for(i in seq_len(nrow(metadat))) {
   # Subset data following timestamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
   if(!nrow(x)) zero_match <- TRUE
-  x$row <- i
+  x$Obs <- i
   x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
   matched_dat[[i]] <- x
   message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
@@ -161,7 +165,7 @@ for(i in seq_len(nrow(metadat))) {
 
 # Combine all subsetted data together and merge with metadata 
 combined_dat <- do.call("rbind", matched_dat)
-combined_dat <- merge(metadat, combined_dat, by = "row")
+combined_dat <- merge(metadat, combined_dat, by = "Obs")
 rm(dat)
 
 n <- nrow(combined_dat)
@@ -232,18 +236,32 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
 
 ```{r}
 #| fig-width: 8
-ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = row)) + 
+ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 
-ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = row)) + 
+ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
 ## Flux computation
+
+```{r}
+
+# Change units
+
+fit_model <- function(df) {
+  
+}
+# Fit model
+
+# Use broom::tidy and glance to collect data on the model
+
+
+```
 
 ## QA/QC
 
