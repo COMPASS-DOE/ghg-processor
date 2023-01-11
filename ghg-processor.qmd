@@ -13,6 +13,7 @@ date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
   html:
+    toc: true
     code-fold: true
 editor: visual
 ---
