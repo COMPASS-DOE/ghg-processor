@@ -231,13 +231,15 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
 
 ```{r}
 #| fig-width: 8
-ggplot(combined_dat, aes(ELAPSED_SECS, CO2, color = Plot, group = row)) + 
+ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = row)) + 
   geom_point(na.rm = TRUE) +
-  facet_wrap(~Plot, scales = "free")
+  facet_wrap(~Plot, scales = "free") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 
-ggplot(combined_dat, aes(ELAPSED_SECS, CH4, color = Plot, group = row)) + 
+ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = row)) + 
   geom_point(na.rm = TRUE) +
-  facet_wrap(~Plot, scales = "free")
+  facet_wrap(~Plot, scales = "free") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
 ## Flux computation
