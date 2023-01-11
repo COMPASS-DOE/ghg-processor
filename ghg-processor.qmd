@@ -28,6 +28,7 @@ suppressPackageStartupMessages({
   library(readxl)
   library(broom)
   library(DT)
+  library(MASS)
 })
 theme_set(theme_bw())
 
@@ -242,11 +243,14 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
 ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
+  # Plot both linear and curvilinear fits
+  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 
 ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
+  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
@@ -276,6 +280,10 @@ fit_model <- function(df, depvar) {
   # Slope (flux) statistics
   slope_stats <- tidy(mod)[2,-1]
   names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
+  # Robust regression
+  robust <- MASS::rlm(df[,depvar] ~ df[,"ELAPSED_SECS"])
+  slope_stats$flux_estimate_robust <- coefficients(robust)[2]
+  
   cbind(info, model_stats, slope_stats)
 }
 results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2")
@@ -312,6 +320,11 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
 
 ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
   geom_point() + 
+  facet_wrap(~Gas, scales = "free")
+
+ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = Plot)) + 
+  geom_point() + 
+  geom_abline(linetype = 2) +
   facet_wrap(~Gas, scales = "free")
 ```
 
