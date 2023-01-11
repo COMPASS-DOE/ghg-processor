@@ -118,6 +118,7 @@ read_metadata <- function(fn) {
   if(is.data.frame(metadat_raw)) {
     # What?
     metadat_raw$File <- basefn
+    metadat_raw$Date <- force_tz(metadat_raw$Date, "EST")
     metadat <- metadat_raw
   } else {
     warning("File read error for ", basefn)
@@ -145,10 +146,9 @@ zero_match <- FALSE
 matched_dat <- list()
 for(i in seq_len(nrow(metadat))) {
   ts <- metadat$Time_start[i]
-  ts <- force_tz(ts, "EST") # TODO: is there a better way to do this?
   start_time <- metadat$Date[i] + hour(ts) * 60 * 60 + minute(ts) * 60 + second(ts)
   end_time <- start_time + params$msmt_length_min * 60
-  
+
   # Subset data following timestamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
   if(!nrow(x)) zero_match <- TRUE
@@ -156,6 +156,7 @@ for(i in seq_len(nrow(metadat))) {
   x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
   matched_dat[[i]] <- x
   message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
+  message("\t", min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
 }
 
 # Combine all subsetted data together and merge with metadata 
