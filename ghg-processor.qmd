@@ -8,7 +8,7 @@ params:
   output_folder: "output/"
   metadata_folder: "test/"
   msmt_length_min: 5
-  logfile: ""
+  msmt_deadband_sec: 10
 date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
@@ -45,8 +45,6 @@ Measurement length is `r params$msmt_length_min` minutes.
 Writing output to ``r normalizePath(params$output_folder)``.
 
 HTML outfile is ``r params$html_outfile``.
-
-Logfile is ``r params$logfile``.
 
 Working directory is ``r getwd()``.
 
@@ -90,8 +88,6 @@ read_ghg_data <- function(fn) {
 
 dat <- lapply(data_files, read_ghg_data)
 dat <- do.call("rbind", dat)
-
-neg_CO2 <- sum(dat$CO2 < 0, na.rm = TRUE)
 ```
 
 Errors: `r errors`
@@ -103,52 +99,8 @@ Errors: `r errors`
 if(errors) cat("**<span style='color:red'>---> At least one error occurred! <---</span>**")
 ```
 
-Total observations: `r nrow(dat)`
+Total observations: `r format(nrow(dat), big.mark = ",")`
 
-Observations with negative CO2: `r neg_CO2` (`r round(neg_CO2 / nrow(dat) * 100, 0)`%)
-
-## Overall CO2 and CH4 data
-
-Distribution of CO2 values:
-
-```{r}
-OVERALL_PLOT_N <- 300
-summary(dat$CO2)
-```
-
-Plot of random `r OVERALL_PLOT_N` CO2 values (y axis 10%-90%):
-
-```{r}
-#| fig-width: 8
-#| fig-height: 4
-
-ylim_co2 <- quantile(dat$CO2, probs = c(0.1, 0.9), na.rm = TRUE)
-
-dat_small <- dat[sample.int(nrow(dat), OVERALL_PLOT_N, replace = TRUE),]
-ggplot(dat_small, aes(TIMESTAMP, CO2)) + 
-  geom_point(na.rm = TRUE) +
-  coord_cartesian(ylim = ylim_co2)
-```
-
-Distribution of CH4 values:
-
-```{r}
-summary(dat$CH4)
-```
-
-Plot of random `r OVERALL_PLOT_N` CH4 values (y axis 10%-90%):
-
-```{r}
-#| fig-width: 8
-#| fig-height: 4
-
-ylim_ch4 <- quantile(dat$CH4, probs = c(0.1, 0.9), na.rm = TRUE)
-
-dat_small <- dat[sample.int(nrow(dat), 200, replace = TRUE),]
-ggplot(dat_small, aes(TIMESTAMP, CH4)) + 
-  geom_point(na.rm = TRUE) +
-  coord_cartesian(ylim = ylim_ch4)
-```
 
 ## Read in metadata
 
@@ -209,6 +161,12 @@ for(i in seq_len(nrow(metadat))) {
 # Combine all subsetted data together and merge with metadata 
 combined_dat <- do.call("rbind", matched_dat)
 combined_dat <- merge(metadat, combined_dat, by = "row")
+rm(dat)
+
+n <- nrow(combined_dat)
+neg_CO2 <- sum(combined_dat$CO2 < 0, na.rm = TRUE)
+na_CO2 <- sum(is.na(combined_dat$CO2), na.rm = TRUE)
+na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
 ```
 
 ```{r}
@@ -217,6 +175,57 @@ combined_dat <- merge(metadat, combined_dat, by = "row")
 
 if(zero_match) cat("**<span style='color:red'>---> At least one metadata row had no matching data! <---</span>**")
 ```
+
+
+## CO2 and CH4 measurement data
+
+Observations with negative CO2: `r neg_CO2` (`r round(neg_CO2 / n * 100, 0)`%)
+
+Observations with missing CO2: `r na_CO2` (`r round(na_CO2 / n * 100, 0)`%)
+
+Distribution of CO2 values:
+
+```{r}
+OVERALL_PLOT_N <- 300
+summary(combined_dat$CO2)
+```
+
+Plot of `r OVERALL_PLOT_N` random CO2 values (y axis 5%-95%):
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+
+ylim_co2 <- quantile(combined_dat$CO2, probs = c(0.05, 0.95), na.rm = TRUE)
+
+dat_small <- combined_dat[sample.int(n, OVERALL_PLOT_N, replace = TRUE),]
+ggplot(dat_small, aes(TIMESTAMP, CO2, color = Plot)) + 
+  geom_point(na.rm = TRUE) +
+  coord_cartesian(ylim = ylim_co2)
+```
+
+Observations with missing CH4: `r na_CH4` (`r round(na_CH4 / n * 100, 0)`%)
+
+Distribution of CH4 values:
+
+```{r}
+summary(combined_dat$CH4)
+```
+
+Plot of `r OVERALL_PLOT_N` random CH4 values (y axis 5%-95%):
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
+
+ylim_ch4 <- quantile(combined_dat$CH4, probs = c(0.05, 0.95), na.rm = TRUE)
+
+dat_small <- combined_dat[sample.int(n, OVERALL_PLOT_N, replace = TRUE),]
+ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) + 
+  geom_point(na.rm = TRUE) +
+  coord_cartesian(ylim = ylim_ch4)
+```
+
 
 ## Observations by plot and day
 
