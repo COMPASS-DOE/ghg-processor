@@ -4,9 +4,9 @@ author: "Bond-Lamberty / Wilson"
 title-block-banner: true
 params:
   html_outfile: "ghg-processor.html"
-  data_folder: "test/"
+  data_folder: "data/"
   output_folder: "output/"
-  metadata_folder: "test/"
+  metadata_folder: "data/"
   msmt_length_min: 5
   msmt_deadband_sec: 10
 date: now
@@ -62,22 +62,28 @@ read_ghg_data <- function(fn) {
   message(Sys.time(), " Processing ", basefn)
   
   dat_raw <- readLines(fn)
+  # Save the serial number in case we want to look at machine differences later
+  sn <- trimws(gsub("SN:\t", "", dat_raw[2], fixed = TRUE))
+  # Parse the timezone from the header and use it to make a TIMESTAMP field
+  tz <- trimws(gsub("Timezone:\t", "", dat_raw[5], fixed = TRUE))
   
-  # These files have five header lines, the names of the columns in line 6,
-  # and then the column units in line 7
+  # These files have five header lines, then the names of the columns in line 6,
+  # and then the column units in line 7. We only want the names
+  dat_raw <- dat_raw[-c(1:5, 7)]
+  # Irritatingly, the units line can repeat in the file (???!?). Remove these
+  dat_raw <- dat_raw[grep("DATAU", dat_raw, invert = TRUE)]
+  # Double irritatingly, if there's no remark, the software write \t\t, not
+  # \t""\t, causing a read error. Replace these instances
+  dat_raw <- gsub("\t\t", "\tnan\t", dat_raw, fixed = TRUE)
   dat <- try({
-    readr::read_table(I(dat_raw[-c(1,2,3,4,5,7)]), na = "nan")
+    readr::read_table(I(dat_raw), na = "nan", guess_max = 1e4)
   })
   
   if(is.data.frame(dat)) {
-    # Save the serial number in case we want to look at machine differences later
     message("\tRead in ", nrow(dat), " rows of data, ", 
             min(dat$DATE), " to ", max(dat$DATE))
-    sn <- gsub("SN:\t", "", dat_raw[2], fixed = TRUE)
     message("\tInstrument serial number: ", sn)
     dat$SN <- sn
-    # Parse the timezone from the header and use it to make a TIMESTAMP field
-    tz <- gsub("Timezone:\t", "", dat_raw[5], fixed = TRUE)
     message("\tInstrument time zone: ", tz)
     # We record the time zone but don't convert the timestamps to it as
     # that's not needed right now; metadata time is guaranteed to be same
@@ -150,7 +156,7 @@ Total rows: `r nrow(metadat)`
 
 ```{r}
 # For each row of metadata, find corresponding observational data
-zero_match <- FALSE
+zero_matches <- data.frame()
 matched_dat <- list()
 for(i in seq_len(nrow(metadat))) {
   ts <- metadat$Time_start[i]
@@ -159,18 +165,25 @@ for(i in seq_len(nrow(metadat))) {
 
   # Subset data following timestamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
-  if(!nrow(x)) zero_match <- TRUE
-  x$Obs <- i
-  x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
+  message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(x), " data rows")
+  if(nrow(x)) {
+    x$Obs <- i
+    x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
+    message("\t", min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
+  } else {
+    message("\tWARNING; file: ", metadat$File[i])
+    zero_matches <- rbind(zero_matches, data.frame(File = metadat$File[i],
+                                                   Row = i,
+                                                   Date = metadat$Date[i],
+                                                   Time_start = metadat$Time_start[i]))
+  }
   matched_dat[[i]] <- x
-  message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(matched_dat[[i]]), " data rows")
-  message("\t", min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
 }
 
 # Combine all subsetted data together and merge with metadata 
 combined_dat <- do.call("rbind", matched_dat)
 combined_dat <- merge(metadat, combined_dat, by = "Obs")
-rm(dat)
+#rm(dat)
 
 n <- nrow(combined_dat)
 neg_CO2 <- sum(combined_dat$CO2 < 0, na.rm = TRUE)
@@ -182,7 +195,15 @@ na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
 #| echo: false
 #| output: asis
 
-if(zero_match) cat("**<span style='color:red'>---> At least one metadata row had no matching data! <---</span>**")
+if(nrow(zero_matches)) {
+  cat("**<span style='color:red'>---> At least one metadata row had no matching data! <---</span>**\n\n")
+}
+```
+
+```{r}
+if(nrow(zero_matches)) {
+  knitr::kable(zero_matches)
+}
 ```
 
 
