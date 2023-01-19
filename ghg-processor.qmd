@@ -169,7 +169,8 @@ for(i in seq_len(nrow(metadat))) {
   if(nrow(x)) {
     x$Obs <- i
     x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
-    message("\t", min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
+    message("\t", paste(unique(x$SN), collapse = ","), " from ",
+            min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
   } else {
     message("\tWARNING; file: ", metadat$File[i])
     zero_matches <- rbind(zero_matches, data.frame(File = metadat$File[i],
