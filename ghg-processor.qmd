@@ -284,7 +284,6 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
 
 model_fit_error <- FALSE
 fit_model <- function(df, depvar) {
-  message("Fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
   # Metadata
   info <- data.frame(Obs = df$Obs[1],
                      TIMESTAMP = mean(df$TIMESTAMP),
@@ -293,7 +292,7 @@ fit_model <- function(df, depvar) {
   # Fit a linear model
   try(mod <- lm(df[,depvar] ~ df[,"ELAPSED_SECS"]))
   if(!exists("mod")) {
-    message("\tERROR!")
+    message("ERROR fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
     model_fit_error <- model_fit_error & FALSE
   }
   # Model statistics
@@ -338,17 +337,43 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
   geom_point() + 
   geom_errorbar(aes(ymin = flux_estimate - flux_std.error,
                     ymax = flux_estimate + flux_std.error)) +
-  facet_wrap(~Gas, scales = "free")
+  geom_line(aes(group = Plot)) +
+  facet_wrap(~Gas + Site, scales = "free")
 
 ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
-  geom_point() + 
-  facet_wrap(~Gas, scales = "free")
+  geom_point() +
+  facet_wrap(~Gas + Site, scales = "free")
 
 ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = Plot)) + 
   geom_point() + 
   geom_abline(linetype = 2) +
-  facet_wrap(~Gas, scales = "free")
+  facet_wrap(~Gas + Site, scales = "free")
 ```
+
+# Closer look at low-R2 data
+
+```{r}
+low_r2 <- subset(results, results$adj.r.squared < 0.5)
+low_r2 <- unique(low_r2$Obs)
+
+ggplot(subset(combined_dat, Obs %in% low_r2), 
+       aes(ELAPSED_SECS, CO2, group = Obs)) + 
+  geom_point(na.rm = TRUE) +
+  facet_wrap(~Plot + date(TIMESTAMP), scales = "free") +
+  # Plot both linear and curvilinear fits
+  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+
+ggplot(subset(combined_dat, Obs %in% low_r2), 
+       aes(ELAPSED_SECS, CH4, group = Obs)) + 
+  geom_point(na.rm = TRUE) +
+  facet_wrap(~Plot + date(TIMESTAMP), scales = "free") +
+  # Plot both linear and curvilinear fits
+  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+```
+
+
 
 
 ## Output
