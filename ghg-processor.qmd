@@ -344,7 +344,6 @@ results <- do.call("rbind", c(results_co2, results_ch4))
 results <- merge(results, metadat, by = "Obs")
 ```
 
-
 ```{r}
 #| echo: false
 #| output: asis
@@ -352,13 +351,11 @@ results <- merge(results, metadat, by = "Obs")
 if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn't fit! <---</span>**")
 ```
 
-## QA/QC
-
-Lots of possibilities here...
+## Flux summary
 
 ```{r}
-#| fig-width: 8
-#| fig-height: 4
+
+# Table and visualization
 
 formatRound(datatable(results),
             which(sapply(results, is.numeric)), digits = 3)
@@ -369,6 +366,15 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
                     ymax = flux_estimate + flux_std.error)) +
   geom_line(aes(group = Plot)) +
   facet_wrap(~Gas + Site, scales = "free")
+```
+
+## QA/QC
+
+Lots of possibilities here...
+
+```{r}
+#| fig-width: 8
+#| fig-height: 4
 
 ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
   geom_point() +
