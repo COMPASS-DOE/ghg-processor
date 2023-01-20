@@ -276,13 +276,42 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
+## Unit conversion
+
+```{r}
+required_fields <- c("Volume", "Temp")
+if(!all(required_fields %in% names(combined_dat))) {
+  stop("We need volume ('Volume') and temperature ('Temp')")  
+}
+
+# CH4
+# Use known volume of chamber to convert ppb to liters:
+#   ppb CH4 * volume of chamber (m3) * 1000 L per m3
+CH4_L <- with(combined_dat, (CH4 / 1e9) * Volume * 1000)
+TEMP_K <- with(combined_dat, Temp + 273.15)
+AREA <- combined_dat$Area
+
+# Use ideal gas law to calculate µmol of CH4 per m2 ground:
+# (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
+combined_dat$`CH4 (µmol/m2)` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
+
+# CO2
+# Use known volume of chamber to convert ppm to liters:
+#   ppm CO2 * volume of chamber (m3) * 1000 L per m3
+CO2_L <- with(combined_dat, (CO2 / 1e6) * Volume * 1000)
+# Use ideal gas law to calculate mmol of CO2 per m2 ground:
+# (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
+combined_dat$`CO2 (mmol/m2)` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
+
+summary(combined_dat[c("Temp", "CH4 (µmol/m2)", "CO2 (mmol/m2)")])
+```
+
 ## Flux computation
 
 ```{r}
 
-# Change units - todo
-
 model_fit_error <- FALSE
+# Fit a model to units of gas per day
 fit_model <- function(df, depvar) {
   # Metadata
   info <- data.frame(Obs = df$Obs[1],
@@ -290,25 +319,26 @@ fit_model <- function(df, depvar) {
                      TZ = df$TZ[1],
                      SN = df$SN[1])
   # Fit a linear model
-  try(mod <- lm(df[,depvar] ~ df[,"ELAPSED_SECS"]))
+  df$ELAPSED_DAYS <- df[,"ELAPSED_SECS"] / 60 / 60 / 24
+  try(mod <- lm(df[,depvar] ~ df$ELAPSED_DAYS))
   if(!exists("mod")) {
     message("ERROR fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
     model_fit_error <- model_fit_error & FALSE
   }
   # Model statistics
   model_stats <- glance(mod)
-  model_stats$Gas <- depvar
+  model_stats$Gas <- gsub(")", "/day)", depvar, fixed = TRUE)
   # Slope (flux) statistics
   slope_stats <- tidy(mod)[2,-1]
   names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
   # Robust regression
-  robust <- MASS::rlm(df[,depvar] ~ df[,"ELAPSED_SECS"])
+  robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_DAYS)
   slope_stats$flux_estimate_robust <- coefficients(robust)[2]
   
   cbind(info, model_stats, slope_stats)
 }
-results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2")
-results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4")
+results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 (µmol/m2)")
+results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 (mmol/m2)")
 results <- do.call("rbind", c(results_co2, results_ch4))
 # Re-merge with metadata
 results <- merge(results, metadat, by = "Obs")
@@ -372,8 +402,6 @@ ggplot(subset(combined_dat, Obs %in% low_r2),
   geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
-
-
 
 
 ## Output
