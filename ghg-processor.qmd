@@ -309,7 +309,7 @@ AREA <- combined_dat$Area
 
 # Use ideal gas law to calculate µmol of CH4 per m2 ground:
 # (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
-combined_dat$`CH4 (µmol/m2)` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
+combined_dat$`CH4 µmol/m2` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
 
 # CO2
 # Use known volume of chamber to convert ppm to liters:
@@ -317,9 +317,9 @@ combined_dat$`CH4 (µmol/m2)` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
 CO2_L <- with(combined_dat, (CO2 / 1e6) * Volume * 1000)
 # Use ideal gas law to calculate mmol of CO2 per m2 ground:
 # (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
-combined_dat$`CO2 (mmol/m2)` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
+combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
 
-summary(combined_dat[c("Temp", "CH4 (µmol/m2)", "CO2 (mmol/m2)")])
+summary(combined_dat[c("Temp", "CH4 µmol/m2", "CO2 mmol/m2")])
 ```
 
 ## Flux computation
@@ -346,7 +346,9 @@ fit_model <- function(df, depvar) {
   }
   # Model statistics
   model_stats <- glance(mod)
-  model_stats$Gas <- gsub(")", "/day)", depvar, fixed = TRUE)
+  gas_units <- strsplit(depvar, " ", fixed = TRUE)[[1]]
+  model_stats$Gas <- gas_units[1]
+  model_stats$Units <- paste0(gas_units[2], "/day")
   # Slope (flux) statistics
   slope_stats <- tidy(mod)[2,-1]
   names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
@@ -356,8 +358,8 @@ fit_model <- function(df, depvar) {
   
   cbind(info, model_stats, slope_stats)
 }
-results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 (µmol/m2)")
-results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 (mmol/m2)")
+results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µmol/m2")
+results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
 results <- do.call("rbind", c(results_co2, results_ch4))
 # Re-merge with metadata
 results <- merge(results, metadat, by = "Obs")
@@ -384,7 +386,7 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
   geom_errorbar(aes(ymin = flux_estimate - flux_std.error,
                     ymax = flux_estimate + flux_std.error)) +
   geom_line(aes(group = Plot)) +
-  facet_wrap(~Gas + Site, scales = "free")
+  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 ```
 
 ## QA/QC
@@ -395,14 +397,27 @@ Lots of possibilities here...
 #| fig-width: 8
 #| fig-height: 4
 
+# -----------------------------------------------------------------------------
+is_outlier <- function(x, devs = 5.2) {
+ # See: Davies, P.L. and Gather, U. (1993).
+ # "The identification of multiple outliers" (with discussion)
+ # J. Amer. Statist. Assoc., 88, 782-801.
+
+ x <- na.omit(x)
+ lims <- median(x) + c(-1, 1) * devs * mad(x, constant = 1)
+ return(x < lims[1] | x > lims[2])
+}
+
+
 ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
   geom_point() +
-  facet_wrap(~Gas + Site, scales = "free")
+  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 
-ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = Plot)) + 
+results$F_ROBUST_DIV <- is_outlier(with(results, (flux_estimate - flux_estimate_robust) / flux_estimate))
+ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = F_ROBUST_DIV)) + 
   geom_point() + 
   geom_abline(linetype = 2) +
-  facet_wrap(~Gas + Site, scales = "free")
+  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 ```
 
 # Closer look at low-R2 data
