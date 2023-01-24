@@ -18,7 +18,7 @@ format:
 editor: visual
 ---
 
-## Initializing
+# Initializing
 
 ```{r}
 suppressPackageStartupMessages({
@@ -54,6 +54,8 @@ Writing output to ``r normalizePath(params$output_folder)``.
 HTML outfile is ``r params$html_outfile``.
 
 Working directory is ``r getwd()``.
+
+# Data
 
 ## Read in GHG data
 
@@ -137,6 +139,12 @@ read_metadata <- function(fn) {
     # Note that it's guaranteed that metadata time is instrument time,
     # so we don't worry about any time zones right now
     metadat <- metadat_raw
+    
+    if(!"Dead_band" %in% names(metadat)) {
+      metadat$Dead_band <- NA_real_
+    } else {
+      message("\tCustom Dead_band column exists")
+    }
   } else {
     warning("File read error for ", basefn)
     errors <<- errors + 1
@@ -149,10 +157,6 @@ read_metadata <- function(fn) {
 metadat <- lapply(metadata_files, read_metadata)
 metadat <- do.call("rbind", metadat)
 metadat$Obs <- seq_len(nrow(metadat))
-if(!"Dead_band" %in% names(metadat)) {
-  message("Creating a dead_band column")
-  metadat$Dead_band <- NA_real_
-}
 ```
 
 Errors: `r errors`
@@ -322,6 +326,8 @@ combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
 summary(combined_dat[c("Temp", "CH4 µmol/m2", "CO2 mmol/m2")])
 ```
 
+# Fluxes
+
 ## Flux computation
 
 ```{r}
@@ -352,11 +358,13 @@ fit_model <- function(df, depvar) {
   # Slope (flux) statistics
   slope_stats <- tidy(mod)[2,-1]
   names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
+  intercept_stats <- tidy(mod)[1,-1]
+  names(intercept_stats) <- paste("int", names(intercept_stats), sep = "_")
   # Robust regression
   robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_DAYS)
   slope_stats$flux_estimate_robust <- coefficients(robust)[2]
   
-  cbind(info, model_stats, slope_stats)
+  cbind(info, model_stats, slope_stats, intercept_stats)
 }
 results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µmol/m2")
 results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
@@ -375,8 +383,9 @@ if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn'
 ## Flux summary
 
 ```{r}
+#| fig-width: 8
 
-# Table and visualization
+# Flux table and visualization
 
 formatRound(datatable(results),
             which(sapply(results, is.numeric)), digits = 3)
@@ -389,9 +398,54 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
   facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 ```
 
-## QA/QC
+# QA/QC
+
+```{r}
+# General function: plot distribution of a column,
+# identify outliers
+plot_and_flag <- function(results, col, combined_dat,
+                          probs = c(0.05, 0.95),
+                          flag_name = paste0("FLAG_", toupper(col))) {
+  
+  ggplot(results, aes(.data[[col]])) + 
+    geom_histogram(bins = 30) +
+    facet_wrap(Gas ~., scales = "free", ncol = 1)
+  
+  # Find which ones are outside of quantiles
+  # Print the observation numbers
+  # Assign a flag
+  # Graph them
+  x_split <- split(x[,col], x$Gas)
+  quants <- lapply(x_split, quantile, probs = probs)
+}
+```
+
+
+## R2 distribution
+
+## y-intercept distribution
+
+```{r}
+#| fig-width: 8
+#| eval: false
+plot_and_flag(results, "int_estimate", combined_dat)
+```
+
+## Robust regression divergence
+
+## Polynomial regression divergence
 
 Lots of possibilities here...
+
+y-intercept of regression
+R2
+Flux difference or R2 difference between lm and robust
+Flux difference or R2 difference between lm and poly
+
+Do we look for 5%/95% values?
+Absolute threshold?
+MAD?
+
 
 ```{r}
 #| fig-width: 8
@@ -420,7 +474,7 @@ ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = F_ROBUS
   facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 ```
 
-# Closer look at low-R2 data
+## Closer look at low-R2 data
 
 ```{r}
 low_r2 <- subset(results, results$adj.r.squared < 0.5)
@@ -445,10 +499,11 @@ ggplot(all_dat_low_r2, aes(ELAPSED_SECS, value, group = Obs)) +
               method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
+## Observations with custom dead band
 
-## Output
+# Output
 
-## Reproducibility
+# Reproducibility
 
 ```{r}
 sessionInfo()
