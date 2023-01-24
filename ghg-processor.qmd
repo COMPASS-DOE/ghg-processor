@@ -7,8 +7,8 @@ params:
   data_folder: "data/"
   output_folder: "output/"
   metadata_folder: "data/"
-  msmt_length_min: 5
-  msmt_deadband_sec: 10
+  MSMT_LENGTH_SEC: 300
+  DEAD_BAND_SEC: 10
 date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
@@ -29,6 +29,7 @@ suppressPackageStartupMessages({
   library(broom)
   library(DT)
   library(MASS)
+  library(tidyr)
 })
 theme_set(theme_bw())
 
@@ -44,7 +45,9 @@ I see `r length(data_files)` data files to process.
 
 I see `r length(metadata_files)` metadata files to process.
 
-Measurement length is `r params$msmt_length_min` minutes.
+Measurement length is `r params$MSMT_LENGTH_SEC` seconds.
+
+Default dead band time is `r params$DEAD_BAND_SEC` seconds.
 
 Writing output to ``r normalizePath(params$output_folder)``.
 
@@ -146,6 +149,10 @@ read_metadata <- function(fn) {
 metadat <- lapply(metadata_files, read_metadata)
 metadat <- do.call("rbind", metadat)
 metadat$Obs <- seq_len(nrow(metadat))
+if(!"Dead_band" %in% names(metadat)) {
+  message("Creating a dead_band column")
+  metadat$Dead_band <- NA_real_
+}
 ```
 
 Errors: `r errors`
@@ -161,13 +168,20 @@ matched_dat <- list()
 for(i in seq_len(nrow(metadat))) {
   ts <- metadat$Time_start[i]
   start_time <- metadat$Date[i] + hour(ts) * 60 * 60 + minute(ts) * 60 + second(ts)
-  end_time <- start_time + params$msmt_length_min * 60
+  end_time <- start_time + params$MSMT_LENGTH_SEC
 
   # Subset data following timestamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
   message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(x), " data rows")
   if(nrow(x)) {
     x$Obs <- i
+    
+    # Assign dead band: value given in Quarto params, but can be overridden in metadata    
+    if(is.na(metadat$Dead_band[i])) {
+      x$DEAD_BAND_SEC <- params$DEAD_BAND_SEC
+    } else {
+      x$DEAD_BAND_SEC <- metadat$Dead_band[i]
+    }
     x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
     message("\t", paste(unique(x$SN), collapse = ","), " from ",
             min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
@@ -267,13 +281,15 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) +
   facet_wrap(~Plot, scales = "free") +
   # Plot both linear and curvilinear fits
   geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red")
 
 ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
   geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red")
 ```
 
 ## Unit conversion
@@ -316,8 +332,11 @@ fit_model <- function(df, depvar) {
   # Metadata
   info <- data.frame(Obs = df$Obs[1],
                      TIMESTAMP = mean(df$TIMESTAMP),
+                     DEAD_BAND_SEC = unique(df$DEAD_BAND_SEC),
                      TZ = df$TZ[1],
                      SN = df$SN[1])
+  # Remove the dead band data
+  df <- df[df$ELAPSED_SECS > df$DEAD_BAND_SEC,]
   # Fit a linear model
   df$ELAPSED_DAYS <- df[,"ELAPSED_SECS"] / 60 / 60 / 24
   try(mod <- lm(df[,depvar] ~ df$ELAPSED_DAYS))
@@ -392,21 +411,23 @@ ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = Plot)) 
 low_r2 <- subset(results, results$adj.r.squared < 0.5)
 low_r2 <- unique(low_r2$Obs)
 
-ggplot(subset(combined_dat, Obs %in% low_r2), 
-       aes(ELAPSED_SECS, CO2, group = Obs)) + 
-  geom_point(na.rm = TRUE) +
-  facet_wrap(~Plot + date(TIMESTAMP), scales = "free") +
-  # Plot both linear and curvilinear fits
-  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+all_dat_low_r2 <- subset(combined_dat, Obs %in% low_r2,
+                         select = c("Obs", "Plot", "TIMESTAMP", "ELAPSED_SECS",
+                                    "DEAD_BAND_SEC", "CO2", "CH4"))
+all_dat_low_r2 <- tidyr::pivot_longer(all_dat_low_r2, c("CO2", "CH4"),
+                                      names_to = "Gas")
+post_deadband_low_r2 <- subset(all_dat_low_r2, ELAPSED_SECS > DEAD_BAND_SEC)
 
-ggplot(subset(combined_dat, Obs %in% low_r2), 
-       aes(ELAPSED_SECS, CH4, group = Obs)) + 
+ggplot(all_dat_low_r2, aes(ELAPSED_SECS, value, group = Obs)) + 
   geom_point(na.rm = TRUE) +
-  facet_wrap(~Plot + date(TIMESTAMP), scales = "free") +
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red") +
+  facet_wrap(~paste(date(TIMESTAMP), "Obs", Obs) + paste(Plot, Gas), scales = "free") +
+  theme(strip.text = element_text(size = 8)) +
   # Plot both linear and curvilinear fits
-  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+  geom_smooth(data = post_deadband_low_r2,
+              method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
+  geom_smooth(data = post_deadband_low_r2,
+              method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 ```
 
 
