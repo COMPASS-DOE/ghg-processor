@@ -25,6 +25,7 @@ suppressPackageStartupMessages({
   library(readr)
   library(lubridate)
   library(ggplot2)
+  library(ggrepel)
   library(readxl)
   library(broom)
   library(DT)
@@ -360,9 +361,12 @@ fit_model <- function(df, depvar) {
   names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
   intercept_stats <- tidy(mod)[1,-1]
   names(intercept_stats) <- paste("int", names(intercept_stats), sep = "_")
-  # Robust regression
+  # Add robust regression slope as a QA/QC check
   robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_DAYS)
   slope_stats$flux_estimate_robust <- coefficients(robust)[2]
+  # Add polynomial regression R2 as a QA/QC check
+  poly <- lm(df[,depvar] ~ poly(df$ELAPSED_DAYS, 3))
+  slope_stats$r.squared_poly <- summary(poly)$r.squared
   
   cbind(info, model_stats, slope_stats, intercept_stats)
 }
@@ -370,7 +374,7 @@ results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µm
 results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
 results <- do.call("rbind", c(results_co2, results_ch4))
 # Re-merge with metadata
-results <- merge(results, metadat, by = "Obs")
+results <- as_tibble(merge(results, metadat, by = "Obs"))
 ```
 
 ```{r}
@@ -431,9 +435,97 @@ plot_and_flag <- function(results, col, combined_dat,
 plot_and_flag(results, "int_estimate", combined_dat)
 ```
 
+
+```{r}
+# General function: plot two columns against each other, coloring by
+# standardized residual. Return vector of T/F flags if s.resid > cutoff
+twocol_plot_and_flag <- function(results, col1, col2,
+                                 add_1to1_line = FALSE,
+                          rstandard_cutoff = 2) {
+  
+  results <- as.data.frame(results)
+  m <- lm(results[,col2] ~ results[,col1])
+  results$rstandard <- round(abs(rstandard(m)), 2)
+  resid_flags <- results$rstandard > rstandard_cutoff
+  
+  p <- ggplot(results, aes(.data[[col1]], .data[[col2]])) + 
+    geom_point()
+  if(add_1to1_line) p <- p + geom_abline()
+  p <- p +
+    geom_smooth(method = lm, formula = 'y ~ x', linetype = 2) +
+    geom_label_repel(data = subset(results, resid_flags), 
+                     aes(label = paste(paste0("#", Obs), Date, "\n", Plot, "\nsresid =", rstandard)), 
+                     size = 2.5) +
+    facet_wrap(Gas ~., scales = "free", ncol = 1)
+  print(p)
+  
+  return(resid_flags)
+}
+
+# General function: given a results subset, reshape to long form,
+# merge with concentration data, and plot for closer inspection
+# Typically code will call twocol_plot_and_flag above to identify potential
+# issues, and then this function to plot data in detail
+plot_group <- function(results, combined_dat) {
+  
+  plotdata <- merge(results[c("Obs", "adj.r.squared")], combined_dat, by = "Obs")
+  plotdata_long <- tidyr::pivot_longer(plotdata, c("CO2", "CH4"),
+                                      names_to = "Gas")
+  post_deadband <- subset(plotdata_long, ELAPSED_SECS > DEAD_BAND_SEC)
+
+  ggplot(plotdata_long, aes(ELAPSED_SECS, value, group = Obs)) + 
+    geom_point(na.rm = TRUE) +
+    geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red") +
+    facet_wrap(~paste(paste0("#", Obs), date(TIMESTAMP)) + paste(Plot, Gas), 
+               scales = "free") +
+    theme(strip.text = element_text(size = 8)) +
+    geom_smooth(data = post_deadband,
+                method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+}
+```
+
+
+Two column tests
+  Polynomial R2 versus linear R2
+  Robust slope versus linear slope
+  
+  In these cases we want to graph relationship
+  Identify outliers
+    Cook's distance not appropriate; we don't care about leverage here
+    Use rstandard (standardized residuals)
+  Plot x versus y, coloring by rstandard > 2 or not? And label those?
+  Then for those points, plot raw data
+
+
 ## Robust regression divergence
 
+This can indicate outlier problems or ebullition events.
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+results$FLAG_ROBUST_DIV <- twocol_plot_and_flag(results,
+                                                "flux_estimate", 
+                                                "flux_estimate_robust",
+                                                add_1to1_line = TRUE)
+plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
+```
+
 ## Polynomial regression divergence
+
+This can indicate curvature of the gas concentrations time series due to saturation, etc.
+
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+results$FLAG_POLY_DIV <- twocol_plot_and_flag(results,
+                                                "adj.r.squared", 
+                                                "r.squared_poly",
+                                                add_1to1_line = TRUE)
+plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
+```
+
 
 Lots of possibilities here...
 
@@ -463,15 +555,6 @@ is_outlier <- function(x, devs = 5.2) {
 }
 
 
-ggplot(results, aes(x = flux_estimate, y = adj.r.squared, color = sigma)) + 
-  geom_point() +
-  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
-
-results$F_ROBUST_DIV <- is_outlier(with(results, (flux_estimate - flux_estimate_robust) / flux_estimate))
-ggplot(results, aes(x = flux_estimate, y = flux_estimate_robust, color = F_ROBUST_DIV)) + 
-  geom_point() + 
-  geom_abline(linetype = 2) +
-  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
 ```
 
 ## Closer look at low-R2 data
