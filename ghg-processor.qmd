@@ -523,7 +523,7 @@ results$FLAG_POLY_DIV <- twocol_plot_and_flag(results,
                                                 "adj.r.squared", 
                                                 "r.squared_poly",
                                                 add_1to1_line = TRUE)
-plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
+plot_group(subset(results, FLAG_POLY_DIV), combined_dat)
 ```
 
 
