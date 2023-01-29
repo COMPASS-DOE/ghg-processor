@@ -141,11 +141,18 @@ read_metadata <- function(fn) {
     # so we don't worry about any time zones right now
     metadat <- metadat_raw
     
+    # Metadata files can, optionally, have "Dead_band" and "Msmt_length" columns
     if(!"Dead_band" %in% names(metadat)) {
       metadat$Dead_band <- NA_real_
     } else {
       message("\tCustom Dead_band column exists")
     }
+    if(!"Msmt_stop" %in% names(metadat)) {
+      metadat$Msmt_stop <- NA_real_
+    } else {
+      message("\tCustom Msmt_stop column exists")
+    }
+    
   } else {
     warning("File read error for ", basefn)
     errors <<- errors + 1
@@ -187,6 +194,13 @@ for(i in seq_len(nrow(metadat))) {
     } else {
       x$DEAD_BAND_SEC <- metadat$Dead_band[i]
     }
+    # Assign stop time (in seconds, not including dead band): value given in Quarto params, but can be overridden in metadata    
+    if(is.na(metadat$Msmt_stop[i])) {
+      x$MSMT_STOP_SEC <- params$MSMT_LENGTH_SEC
+    } else {
+      x$MSMT_STOP_SEC <- metadat$Msmt_stop[i]
+    }
+    
     x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
     message("\t", paste(unique(x$SN), collapse = ","), " from ",
             min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
@@ -287,14 +301,16 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) +
   # Plot both linear and curvilinear fits
   geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
-  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red")
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
+  geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 
 ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) + 
   geom_point(na.rm = TRUE) +
   facet_wrap(~Plot, scales = "free") +
   geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
   geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
-  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red")
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
+  geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 ```
 
 ## Unit conversion
@@ -344,6 +360,8 @@ fit_model <- function(df, depvar) {
                      SN = df$SN[1])
   # Remove the dead band data
   df <- df[df$ELAPSED_SECS > df$DEAD_BAND_SEC,]
+  # Remove the after-end data
+  df <- df[df$ELAPSED_SECS <= df$MSMT_STOP_SEC,]
   # Fit a linear model
   df$ELAPSED_DAYS <- df[,"ELAPSED_SECS"] / 60 / 60 / 24
   try(mod <- lm(df[,depvar] ~ df$ELAPSED_DAYS))
@@ -437,6 +455,8 @@ plot_and_flag(results, "int_estimate", combined_dat)
 
 
 ```{r}
+#| include: false
+
 # General function: plot two columns against each other, coloring by
 # standardized residual. Return vector of T/F flags if s.resid > cutoff
 twocol_plot_and_flag <- function(results, col1, col2,
@@ -444,18 +464,23 @@ twocol_plot_and_flag <- function(results, col1, col2,
                           rstandard_cutoff = 2) {
   
   results <- as.data.frame(results)
+  # Identify standardized residuals outside of our cutoff
   m <- lm(results[,col2] ~ results[,col1])
   results$rstandard <- round(abs(rstandard(m)), 2)
   resid_flags <- results$rstandard > rstandard_cutoff
-  
+  # Create plot labels for all data, then NA the ones inside the cutoff
+  results$lab <- with(results, paste(paste0("#", Obs), 
+                                     Date, "\n", 
+                                     Plot, 
+                                     "\nsresid =", rstandard))
+  results$lab[!resid_flags] <- NA_character_
+
   p <- ggplot(results, aes(.data[[col1]], .data[[col2]])) + 
     geom_point()
   if(add_1to1_line) p <- p + geom_abline()
   p <- p +
     geom_smooth(method = lm, formula = 'y ~ x', linetype = 2) +
-    geom_label_repel(data = subset(results, resid_flags), 
-                     aes(label = paste(paste0("#", Obs), Date, "\n", Plot, "\nsresid =", rstandard)), 
-                     size = 2.5) +
+    geom_label_repel(aes(label = lab), size = 2.5, na.rm = TRUE) +
     facet_wrap(Gas ~., scales = "free", ncol = 1)
   print(p)
   
@@ -470,32 +495,20 @@ plot_group <- function(results, combined_dat) {
   
   plotdata <- merge(results[c("Obs", "adj.r.squared")], combined_dat, by = "Obs")
   plotdata_long <- tidyr::pivot_longer(plotdata, c("CO2", "CH4"),
-                                      names_to = "Gas")
-  post_deadband <- subset(plotdata_long, ELAPSED_SECS > DEAD_BAND_SEC)
-
+                                       names_to = "Gas")
+  model_data <- subset(plotdata_long, ELAPSED_SECS > DEAD_BAND_SEC & ELAPSED_SECS <= MSMT_STOP_SEC)
+  
   ggplot(plotdata_long, aes(ELAPSED_SECS, value, group = Obs)) + 
     geom_point(na.rm = TRUE) +
-    geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red") +
+    geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
+    geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red") +
     facet_wrap(~paste(paste0("#", Obs), date(TIMESTAMP)) + paste(Plot, Gas), 
                scales = "free") +
     theme(strip.text = element_text(size = 8)) +
-    geom_smooth(data = post_deadband,
+    geom_smooth(data = model_data,
                 method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 }
 ```
-
-
-Two column tests
-  Polynomial R2 versus linear R2
-  Robust slope versus linear slope
-  
-  In these cases we want to graph relationship
-  Identify outliers
-    Cook's distance not appropriate; we don't care about leverage here
-    Use rstandard (standardized residuals)
-  Plot x versus y, coloring by rstandard > 2 or not? And label those?
-  Then for those points, plot raw data
-
 
 ## Robust regression divergence
 
@@ -565,14 +578,15 @@ low_r2 <- unique(low_r2$Obs)
 
 all_dat_low_r2 <- subset(combined_dat, Obs %in% low_r2,
                          select = c("Obs", "Plot", "TIMESTAMP", "ELAPSED_SECS",
-                                    "DEAD_BAND_SEC", "CO2", "CH4"))
+                                    "DEAD_BAND_SEC", "MSMT_STOP_SEC", "CO2", "CH4"))
 all_dat_low_r2 <- tidyr::pivot_longer(all_dat_low_r2, c("CO2", "CH4"),
                                       names_to = "Gas")
 post_deadband_low_r2 <- subset(all_dat_low_r2, ELAPSED_SECS > DEAD_BAND_SEC)
 
 ggplot(all_dat_low_r2, aes(ELAPSED_SECS, value, group = Obs)) + 
   geom_point(na.rm = TRUE) +
-  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "red") +
+  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
+  geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red") +
   facet_wrap(~paste(date(TIMESTAMP), "Obs", Obs) + paste(Plot, Gas), scales = "free") +
   theme(strip.text = element_text(size = 8)) +
   # Plot both linear and curvilinear fits
@@ -585,6 +599,9 @@ ggplot(all_dat_low_r2, aes(ELAPSED_SECS, value, group = Obs)) +
 ## Observations with custom dead band
 
 # Output
+
+* Final `results` dataset
+* Plot for each measurement (grouped by ...?)
 
 # Reproducibility
 
