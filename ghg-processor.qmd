@@ -423,39 +423,42 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
 # QA/QC
 
 ```{r}
-# General function: plot distribution of a column,
+#| include: false
+
+# General function: plot distribution of a single column,
 # identify outliers
-plot_and_flag <- function(results, col, combined_dat,
-                          probs = c(0.05, 0.95),
-                          flag_name = paste0("FLAG_", toupper(col))) {
+onecol_plot_and_flag <- function(results, col, probs = c(0.05, 0.95),
+                                 left = TRUE, right = TRUE) {
   
-  ggplot(results, aes(.data[[col]])) + 
+  p <- ggplot(results, aes(.data[[col]])) + 
     geom_histogram(bins = 30) +
     facet_wrap(Gas ~., scales = "free", ncol = 1)
+  print(p)
   
-  # Find which ones are outside of quantiles
-  # Print the observation numbers
-  # Assign a flag
-  # Graph them
-  x_split <- split(x[,col], x$Gas)
-  quants <- lapply(x_split, quantile, probs = probs)
+  # Find which ones are outside of quantiles and flag
+  q_flags <- rep(FALSE, nrow(results))
+  co2 <- results$Gas == "CO2"
+  x <- as.data.frame(results)
+  q_co2 <- quantile(x[co2, col], probs = probs)
+  q_ch4 <- quantile(x[!co2, col], probs = probs)
+  if(left) q_flags[co2] <- q_flags[co2] | x[co2, col] < min(q_co2) 
+  if(right) q_flags[co2] <- q_flags[co2] | x[co2, col] > max(q_co2)
+  if(left) q_flags[!co2] <- q_flags[!co2] | x[!co2, col] < min(q_ch4) 
+  if(right) q_flags[!co2] <- q_flags[!co2] | x[!co2, col] > max(q_ch4)
+
+  # Create plot labels for all data, then NA the ones inside the cutoff
+  results$lab <- x$Obs
+  results$lab[!q_flags] <- NA_character_
+
+  p <- ggplot(results, aes(.data[[col]], flux_estimate)) + 
+    geom_point() + 
+    facet_wrap(~Gas, scales = "free") +
+    geom_rug(sides = "b", alpha = 0.3) +
+    geom_label_repel(aes(label = lab), size = 2.5, na.rm = TRUE)
+  print(p)
+  
+  return(q_flags)
 }
-```
-
-
-## R2 distribution
-
-## y-intercept distribution
-
-```{r}
-#| fig-width: 8
-#| eval: false
-plot_and_flag(results, "int_estimate", combined_dat)
-```
-
-
-```{r}
-#| include: false
 
 # General function: plot two columns against each other, coloring by
 # standardized residual. Return vector of T/F flags if s.resid > cutoff
@@ -496,7 +499,8 @@ plot_group <- function(results, combined_dat) {
   plotdata <- merge(results[c("Obs", "adj.r.squared")], combined_dat, by = "Obs")
   plotdata_long <- tidyr::pivot_longer(plotdata, c("CO2", "CH4"),
                                        names_to = "Gas")
-  model_data <- subset(plotdata_long, ELAPSED_SECS > DEAD_BAND_SEC & ELAPSED_SECS <= MSMT_STOP_SEC)
+  model_data <- subset(plotdata_long, 
+                       ELAPSED_SECS > DEAD_BAND_SEC & ELAPSED_SECS <= MSMT_STOP_SEC)
   
   ggplot(plotdata_long, aes(ELAPSED_SECS, value, group = Obs)) + 
     geom_point(na.rm = TRUE) +
@@ -508,6 +512,30 @@ plot_group <- function(results, combined_dat) {
     geom_smooth(data = model_data,
                 method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
 }
+```
+
+
+## R2 distribution
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+results$FLAG_R2 <- onecol_plot_and_flag(results,
+                                        "adj.r.squared",
+                                        right = FALSE)
+plot_group(subset(results, FLAG_R2), combined_dat)
+```
+
+## y-intercept distribution
+
+```{r}
+#| fig-width: 8
+#| fig-height: 6
+
+# The intercept is quite variable, so use {0.01, 0.99}
+results$FLAG_INTERCEPT <- onecol_plot_and_flag(results, "int_estimate", 
+                                               probs = c(0.01, 0.99))
+plot_group(subset(results, FLAG_INTERCEPT), combined_dat)
 ```
 
 ## Robust regression divergence
@@ -528,7 +556,6 @@ plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
 
 This can indicate curvature of the gas concentrations time series due to saturation, etc.
 
-
 ```{r}
 #| fig-width: 8
 #| fig-height: 6
@@ -539,22 +566,20 @@ results$FLAG_POLY_DIV <- twocol_plot_and_flag(results,
 plot_group(subset(results, FLAG_POLY_DIV), combined_dat)
 ```
 
+## QA/QC summary
 
-Lots of possibilities here...
-
-y-intercept of regression
-R2
-Flux difference or R2 difference between lm and robust
-Flux difference or R2 difference between lm and poly
-
-Do we look for 5%/95% values?
-Absolute threshold?
-MAD?
+```{r}
+res1 <- results["Obs"]
+res2 <- results[grepl("^FLAG_", names(results))]
+res <- pivot_longer(cbind(res1, res2), starts_with("FLAG"), names_to = "Flag")
+res <- subset(res, value)
+f <- function(x) paste(unique(x), collapse = ", ")
+knitr::kable(aggregate(Obs ~ Flag, data = res, f))
+```
 
 
 ```{r}
-#| fig-width: 8
-#| fig-height: 4
+#| include: false
 
 # -----------------------------------------------------------------------------
 is_outlier <- function(x, devs = 5.2) {
@@ -566,37 +591,7 @@ is_outlier <- function(x, devs = 5.2) {
  lims <- median(x) + c(-1, 1) * devs * mad(x, constant = 1)
  return(x < lims[1] | x > lims[2])
 }
-
-
 ```
-
-## Closer look at low-R2 data
-
-```{r}
-low_r2 <- subset(results, results$adj.r.squared < 0.5)
-low_r2 <- unique(low_r2$Obs)
-
-all_dat_low_r2 <- subset(combined_dat, Obs %in% low_r2,
-                         select = c("Obs", "Plot", "TIMESTAMP", "ELAPSED_SECS",
-                                    "DEAD_BAND_SEC", "MSMT_STOP_SEC", "CO2", "CH4"))
-all_dat_low_r2 <- tidyr::pivot_longer(all_dat_low_r2, c("CO2", "CH4"),
-                                      names_to = "Gas")
-post_deadband_low_r2 <- subset(all_dat_low_r2, ELAPSED_SECS > DEAD_BAND_SEC)
-
-ggplot(all_dat_low_r2, aes(ELAPSED_SECS, value, group = Obs)) + 
-  geom_point(na.rm = TRUE) +
-  geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
-  geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red") +
-  facet_wrap(~paste(date(TIMESTAMP), "Obs", Obs) + paste(Plot, Gas), scales = "free") +
-  theme(strip.text = element_text(size = 8)) +
-  # Plot both linear and curvilinear fits
-  geom_smooth(data = post_deadband_low_r2,
-              method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(data = post_deadband_low_r2,
-              method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
-```
-
-## Observations with custom dead band
 
 # Output
 
