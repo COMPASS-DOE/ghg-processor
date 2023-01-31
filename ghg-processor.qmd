@@ -176,6 +176,8 @@ Total rows: `r nrow(metadat)`
 ```{r}
 # For each row of metadata, find corresponding observational data
 zero_matches <- data.frame()
+match_info <- data.frame()
+
 matched_dat <- list()
 for(i in seq_len(nrow(metadat))) {
   ts <- metadat$Time_start[i]
@@ -184,7 +186,14 @@ for(i in seq_len(nrow(metadat))) {
 
   # Subset data following timestamp in metadata and store
   x <- subset(dat, TIMESTAMP >= start_time & TIMESTAMP < end_time)
-  message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(x), " data rows")
+  
+#  message("Metadata row ", i, " ", metadat$Plot[i], " start = ", start_time, " matched ", nrow(x), " data rows")
+  info <- data.frame(Row = i,
+                     Plot = metadat$Plot[i],
+                     start_time = start_time,
+                     Rows_matched = nrow(x),
+                     Min_timestamp = NA,
+                     Max_timestamp = NA)
   if(nrow(x)) {
     x$Obs <- i
     
@@ -194,7 +203,8 @@ for(i in seq_len(nrow(metadat))) {
     } else {
       x$DEAD_BAND_SEC <- metadat$Dead_band[i]
     }
-    # Assign stop time (in seconds, not including dead band): value given in Quarto params, but can be overridden in metadata    
+    # Assign stop time (in seconds, not including dead band): value given in 
+    # Quarto params, but can be overridden in metadata    
     if(is.na(metadat$Msmt_stop[i])) {
       x$MSMT_STOP_SEC <- params$MSMT_LENGTH_SEC
     } else {
@@ -202,8 +212,10 @@ for(i in seq_len(nrow(metadat))) {
     }
     
     x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
-    message("\t", paste(unique(x$SN), collapse = ","), " from ",
-            min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
+    info$Min_timestamp <- min(x$TIMESTAMP)
+    info$Max_timestamp <- max(x$TIMESTAMP)
+#    message("\t", paste(unique(x$SN), collapse = ","), " from ",
+ #           min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
   } else {
     message("\tWARNING; file: ", metadat$File[i])
     zero_matches <- rbind(zero_matches, data.frame(File = metadat$File[i],
@@ -211,6 +223,7 @@ for(i in seq_len(nrow(metadat))) {
                                                    Date = metadat$Date[i],
                                                    Time_start = metadat$Time_start[i]))
   }
+  match_info <- rbind(match_info, info)
   matched_dat[[i]] <- x
 }
 
@@ -223,6 +236,8 @@ n <- nrow(combined_dat)
 neg_CO2 <- sum(combined_dat$CO2 < 0, na.rm = TRUE)
 na_CO2 <- sum(is.na(combined_dat$CO2), na.rm = TRUE)
 na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
+
+datatable(match_info)
 ```
 
 ```{r}
