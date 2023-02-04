@@ -45,3 +45,8 @@ vignettes/*.pdf
 ghg-processor_files/*
 *.dcf
 *.html
+
+# Output directory
+output/*.csv
+output/*.png
+output/*.pdf

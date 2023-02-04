@@ -20,7 +20,7 @@ editor: visual
 
 # Initializing
 
-```{r}
+```{r setup}
 suppressPackageStartupMessages({
   library(readr)
   library(lubridate)
@@ -60,7 +60,7 @@ Working directory is ``r getwd()``.
 
 ## Read in GHG data
 
-```{r}
+```{r read-data}
 errors <- 0
 
 read_ghg_data <- function(fn) {
@@ -123,7 +123,7 @@ Total observations: `r format(nrow(dat), big.mark = ",")`
 
 ## Read in metadata
 
-```{r}
+```{r read-metadata}
 errors <- 0
 
 read_metadata <- function(fn) {
@@ -173,7 +173,7 @@ Total rows: `r nrow(metadat)`
 
 ## Metadata-data matching
 
-```{r}
+```{r join-data}
 # For each row of metadata, find corresponding observational data
 zero_matches <- data.frame()
 match_info <- data.frame()
@@ -271,7 +271,7 @@ summary(combined_dat$CO2)
 
 Plot of `r OVERALL_PLOT_N` random CO2 values (y axis 5%-95%):
 
-```{r}
+```{r plot-obs}
 #| fig-width: 8
 #| fig-height: 4
 
@@ -293,7 +293,7 @@ summary(combined_dat$CH4)
 
 Plot of `r OVERALL_PLOT_N` random CH4 values (y axis 5%-95%):
 
-```{r}
+```{r plot-ch4}
 #| fig-width: 8
 #| fig-height: 4
 
@@ -308,7 +308,7 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
 
 ## Observations by plot and day
 
-```{r}
+```{r plot-co2}
 #| fig-width: 8
 ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) + 
   geom_point(na.rm = TRUE) +
@@ -330,7 +330,7 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
 
 ## Unit conversion
 
-```{r}
+```{r unit-conversion}
 required_fields <- c("Volume", "Temp")
 if(!all(required_fields %in% names(combined_dat))) {
   stop("We need volume ('Volume') and temperature ('Temp')")  
@@ -362,7 +362,7 @@ summary(combined_dat[c("Temp", "CH4 µmol/m2", "CO2 mmol/m2")])
 
 ## Flux computation
 
-```{r}
+```{r flux-computation}
 
 model_fit_error <- FALSE
 # Fit a model to units of gas per day
@@ -419,7 +419,7 @@ if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn'
 
 ## Flux summary
 
-```{r}
+```{r flux-summary}
 #| fig-width: 8
 
 # Flux table and visualization
@@ -437,7 +437,7 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
 
 # QA/QC
 
-```{r}
+```{r qaqc-helpers}
 #| include: false
 
 # General function: plot distribution of a single column,
@@ -532,7 +532,7 @@ plot_group <- function(results, combined_dat) {
 
 ## R2 distribution
 
-```{r}
+```{r qaqc-r2}
 #| fig-width: 8
 #| fig-height: 6
 results$FLAG_R2 <- onecol_plot_and_flag(results,
@@ -543,7 +543,7 @@ plot_group(subset(results, FLAG_R2), combined_dat)
 
 ## y-intercept distribution
 
-```{r}
+```{r qaqc-yint}
 #| fig-width: 8
 #| fig-height: 6
 
@@ -557,7 +557,7 @@ plot_group(subset(results, FLAG_INTERCEPT), combined_dat)
 
 This can indicate outlier problems or ebullition events.
 
-```{r}
+```{r qaqc-robust}
 #| fig-width: 8
 #| fig-height: 6
 results$FLAG_ROBUST_DIV <- twocol_plot_and_flag(results,
@@ -571,7 +571,7 @@ plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
 
 This can indicate curvature of the gas concentrations time series due to saturation, etc.
 
-```{r}
+```{r qaqc-poly}
 #| fig-width: 8
 #| fig-height: 6
 results$FLAG_POLY_DIV <- twocol_plot_and_flag(results,
@@ -583,7 +583,7 @@ plot_group(subset(results, FLAG_POLY_DIV), combined_dat)
 
 ## QA/QC summary
 
-```{r}
+```{r qaqc-summary}
 res1 <- results["Obs"]
 res2 <- results[grepl("^FLAG_", names(results))]
 res <- pivot_longer(cbind(res1, res2), starts_with("FLAG"), names_to = "Flag")
@@ -591,7 +591,6 @@ res <- subset(res, value)
 f <- function(x) paste(unique(x), collapse = ", ")
 knitr::kable(aggregate(Obs ~ Flag, data = res, f))
 ```
-
 
 ```{r}
 #| include: false
@@ -610,8 +609,32 @@ is_outlier <- function(x, devs = 5.2) {
 
 # Output
 
-* Final `results` dataset
-* Plot for each measurement (grouped by ...?)
+```{r write-output}
+now_string <- function() format(Sys.time(), "%Y-%m-%d")
+mkfn <- function(name, extension) { # "make filename" helper function
+  file.path(params$output_folder,
+            paste(paste(name, now_string(), sep = "_"), extension, sep = "."))
+}
+
+fn <- mkfn("results", "csv")
+message("Writing final flux dataset ", fn, "...")
+write_csv(results, fn)
+fn <- mkfn("observations", "csv")
+message("Writing compiled observations dataset ", fn, "...")
+write_csv(combined_dat, fn)
+
+message("Writing plot outputs...", appendLF = FALSE)
+# Loop through each line, generating plot and filename and saving
+for(i in seq_len(nrow(results))) {
+  p <- plot_group(results[i,], combined_dat)
+  fn <- mkfn(paste("obs", results$Obs[i], results$Date[i],
+                   results$Plot[i], sep = "_"), "pdf")
+  ggsave(fn, plot = p, width = 8, height = 5)
+}
+message("\t", i, " written")
+```
+
+All done!
 
 # Reproducibility
 
