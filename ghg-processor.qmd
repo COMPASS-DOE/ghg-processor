@@ -371,6 +371,7 @@ fit_model <- function(df, depvar) {
   info <- data.frame(Obs = df$Obs[1],
                      TIMESTAMP = mean(df$TIMESTAMP),
                      DEAD_BAND_SEC = unique(df$DEAD_BAND_SEC),
+                     MSMT_STOP_SEC = unique(df$MSMT_STOP_SEC),
                      TZ = df$TZ[1],
                      SN = df$SN[1])
   # Remove the dead band data
@@ -401,7 +402,11 @@ fit_model <- function(df, depvar) {
   poly <- lm(df[,depvar] ~ poly(df$ELAPSED_DAYS, 3))
   slope_stats$r.squared_poly <- summary(poly)$r.squared
   
-  cbind(info, model_stats, slope_stats, intercept_stats)
+  res <- cbind(info, model_stats, slope_stats, intercept_stats)
+  # Round to a sensible number of digits
+  numerics <- sapply(res, is.numeric)
+  res[numerics] <- round(res[numerics], 3)
+  res
 }
 results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µmol/m2")
 results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
@@ -609,6 +614,8 @@ is_outlier <- function(x, devs = 5.2) {
 
 # Output
 
+## Data
+
 ```{r write-output}
 now_string <- function() format(Sys.time(), "%Y-%m-%d")
 mkfn <- function(name, extension) { # "make filename" helper function
@@ -616,12 +623,12 @@ mkfn <- function(name, extension) { # "make filename" helper function
             paste(paste(name, now_string(), sep = "_"), extension, sep = "."))
 }
 
-fn <- mkfn("results", "csv")
-message("Writing final flux dataset ", fn, "...")
-write_csv(results, fn)
-fn <- mkfn("observations", "csv")
-message("Writing compiled observations dataset ", fn, "...")
-write_csv(combined_dat, fn)
+flux_fn <- mkfn("results", "csv")
+message("Writing final flux dataset ", flux_fn, "...")
+write_csv(results, flux_fn)
+obs_fn <- mkfn("observations", "csv")
+message("Writing compiled observations dataset ", obs_fn, "...")
+write_csv(combined_dat, obs_fn)
 
 message("Writing plot outputs...", appendLF = FALSE)
 # Loop through each line, generating plot and filename and saving
@@ -632,6 +639,69 @@ for(i in seq_len(nrow(results))) {
   ggsave(fn, plot = p, width = 8, height = 5)
 }
 message("\t", i, " written")
+```
+
+## Metadata
+
+```{r write-metadata}
+results_fields <- c(
+  "Obs" = "Observation number, i.e. order in metadata file(s)",
+  "TIMESTAMP" = "Original timestamp from analyzer",
+  "DEAD_BAND_SEC" = "Dead band used for flux calculation, s",
+  "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
+  "TZ" = "Time zone from analyzer",
+  "SN" = "Serial number from analyzer",
+  "r.squared" = "Linear flux model R2",
+  "adj.r.squared" = "Linear flux model adjusted R2",
+  "sigma" = "Linear flux model sigma",
+  "statistic" = "Linear flux model statistic (SS)",
+  "p.value" = "Linear flux model p-value",
+  "df" = "Linear flux model degrees of freedom",
+  "logLik" = "Linear flux model log-likelihood",
+  "AIC" = "Linear flux model AIC",
+  "BIC" = "Linear flux model BIC",
+  "deviance" = "Linear flux model deviance",
+  "df.residual" = "Linear flux model degrees of freedom",
+  "nobs" = "Linear flux model number of observations",
+  "Gas" = "Gas (CO2 or CH4)",
+  "Units" = "Flux units",
+  "flux_estimate" = "Slope of linear flux model, units/s",
+  "flux_std.error" = "Standard error of slope of linear flux model",
+  "flux_statistic" = "Statistic of slope of linear flux model",
+  "flux_p.value" = "P-value of slope of linear flux model",
+  "flux_estimate_robust" = "Slope of robust flux model",
+  "r.squared_poly" = "Polynomial flux model R2",
+  "int_estimate" = "Intercept of linear flux model, units",
+  "int_std.error" = "Standard error of intercept of linear flux model",
+  "int_statistic" = "Statistic of intercept of linear flux model",
+  "int_p.value" = "P-value of intercept of linear flux model",
+  "Date" = "Date entry from metadata file",
+  "Time_start" = "Time_start entry from metadata file",
+  "Plot" = "Plot entry from metadata file",
+  "Area" = "Area entry from metadata file",
+  "Chambers" = "Chambers entry from metadata file",
+  "Volume" = "Volume entry from metadata file",
+  "Light" = "Light entry from metadata file",
+  "Site" = "Site entry from metadata file",
+  "Zone" = "Zone entry from metadata file",
+  "Rep" = "Rep entry from metadata file",
+  "Temp" = "Temp entry from metadata file",
+  "Dead_band" = "Dead band entry from metadata file",
+  "Msmt_stop" = "Measurement stop entry from metadata file",
+  "Notes" = "Notes entry from metadata file",
+  "File" = "Metadata file name",
+  "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
+  "FLAG_INTERCEPT" = "Flag: linear model intercept flagged as unusual",
+  "FLAG_ROBUST_DIV" = "Flag: linear model flux diverges from robust model",
+  "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model"
+)
+
+results_metadata <- data.frame(Field_name = names(results))
+results_metadata$Description <- results_fields[results_metadata$Field_name]
+
+metadata_fn <- mkfn("results_metadata", "csv")
+message("Writing metadata ", metadata_fn, "...")
+write_csv(results_metadata, metadata_fn)
 ```
 
 All done!
