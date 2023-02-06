@@ -34,6 +34,8 @@ suppressPackageStartupMessages({
 })
 theme_set(theme_bw())
 
+METADATA_REQUIRED_FIELDS <- c("Date", "Time_start", "Plot", "Area", "Volume", "Temp")
+
 data_files <- list.files(params$data_folder, 
                          pattern = "*txt$", 
                          full.names = TRUE, recursive = TRUE)
@@ -49,6 +51,8 @@ I see `r length(metadata_files)` metadata files to process.
 Measurement length is `r params$MSMT_LENGTH_SEC` seconds.
 
 Default dead band time is `r params$DEAD_BAND_SEC` seconds.
+
+Required metafields are: `r paste(METADATA_REQUIRED_FIELDS, collapse = ", ")`.
 
 Writing output to ``r normalizePath(params$output_folder)``.
 
@@ -135,7 +139,11 @@ read_metadata <- function(fn) {
   })
   
   if(is.data.frame(metadat_raw)) {
-    # What?
+    if(!all(METADATA_REQUIRED_FIELDS %in% names(metadat_raw))) {
+      warning("Metadata file ", basefn, " doesn't have required fields!")
+      return(NULL)
+    }
+
     metadat_raw$File <- basefn
     # Note that it's guaranteed that metadata time is instrument time,
     # so we don't worry about any time zones right now
@@ -156,7 +164,7 @@ read_metadata <- function(fn) {
   } else {
     warning("File read error for ", basefn)
     errors <<- errors + 1
-    metadat <- NULL
+    return(NULL)
   }
 
   metadat
@@ -403,7 +411,8 @@ fit_model <- function(df, depvar) {
   slope_stats$r.squared_poly <- summary(poly)$r.squared
   
   res <- cbind(info, model_stats, slope_stats, intercept_stats)
-  # Round to a sensible number of digits
+  
+  # Round to a sensible number of digits and return
   numerics <- sapply(res, is.numeric)
   res[numerics] <- round(res[numerics], 3)
   res
@@ -643,6 +652,8 @@ message("\t", i, " written")
 
 ## Metadata
 
+Note this doesn't include any 'extra' fields in the metadata file.
+
 ```{r write-metadata}
 results_fields <- c(
   "Obs" = "Observation number, i.e. order in metadata file(s)",
@@ -654,7 +665,7 @@ results_fields <- c(
   "r.squared" = "Linear flux model R2",
   "adj.r.squared" = "Linear flux model adjusted R2",
   "sigma" = "Linear flux model sigma",
-  "statistic" = "Linear flux model statistic (SS)",
+  "statistic" = "Linear flux model F-statistic",
   "p.value" = "Linear flux model p-value",
   "df" = "Linear flux model degrees of freedom",
   "logLik" = "Linear flux model log-likelihood",
@@ -667,28 +678,21 @@ results_fields <- c(
   "Units" = "Flux units",
   "flux_estimate" = "Slope of linear flux model, units/s",
   "flux_std.error" = "Standard error of slope of linear flux model",
-  "flux_statistic" = "Statistic of slope of linear flux model",
+  "flux_statistic" = "Statistic (t-value) of slope of linear flux model",
   "flux_p.value" = "P-value of slope of linear flux model",
   "flux_estimate_robust" = "Slope of robust flux model",
   "r.squared_poly" = "Polynomial flux model R2",
   "int_estimate" = "Intercept of linear flux model, units",
   "int_std.error" = "Standard error of intercept of linear flux model",
-  "int_statistic" = "Statistic of intercept of linear flux model",
+  "int_statistic" = "Statistic (t-value) of intercept of linear flux model",
   "int_p.value" = "P-value of intercept of linear flux model",
   "Date" = "Date entry from metadata file",
   "Time_start" = "Time_start entry from metadata file",
   "Plot" = "Plot entry from metadata file",
-  "Area" = "Area entry from metadata file",
-  "Chambers" = "Chambers entry from metadata file",
-  "Volume" = "Volume entry from metadata file",
-  "Light" = "Light entry from metadata file",
-  "Site" = "Site entry from metadata file",
-  "Zone" = "Zone entry from metadata file",
-  "Rep" = "Rep entry from metadata file",
-  "Temp" = "Temp entry from metadata file",
-  "Dead_band" = "Dead band entry from metadata file",
-  "Msmt_stop" = "Measurement stop entry from metadata file",
-  "Notes" = "Notes entry from metadata file",
+  "Area" = "Area entry from metadata file, m2",
+  "Volume" = "Volume entry from metadata file, m3",
+  "Dead_band" = "Dead band entry from metadata file, if present, s",
+  "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
   "File" = "Metadata file name",
   "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
   "FLAG_INTERCEPT" = "Flag: linear model intercept flagged as unusual",
@@ -696,12 +700,17 @@ results_fields <- c(
   "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model"
 )
 
-results_metadata <- data.frame(Field_name = names(results))
-results_metadata$Description <- results_fields[results_metadata$Field_name]
+results_meta <- data.frame(Field_name = names(results))
+results_meta$Description <- results_fields[results_meta$Field_name]
+# Mark any metadata fields that aren't required - they're extra, from user
+from_metadata <- is.na(results_meta$Description) &
+  results_meta$Field_name %in% names(metadat)
+results_meta$Description[from_metadata] <- "<from metadata file>"
+datatable(results_meta)
 
 metadata_fn <- mkfn("results_metadata", "csv")
 message("Writing metadata ", metadata_fn, "...")
-write_csv(results_metadata, metadata_fn)
+write_csv(results_meta, metadata_fn)
 ```
 
 All done!
