@@ -108,6 +108,7 @@ read_ghg_data <- function(fn) {
     dat$TZ <- tz
     # Remove unneeded Licor DATE and TIME columns
     dat$DATE <- dat$TIME <- NULL
+    dat$Data_file <- basefn
     return(dat)
   } else {
     warning("File read error for ", basefn)
@@ -152,7 +153,7 @@ read_metadata <- function(fn) {
       return(NULL)
     }
 
-    metadat_raw$File <- basefn
+    metadat_raw$Metadata_file <- basefn
     # Note that it's guaranteed that metadata time is instrument time,
     # so we don't worry about any time zones right now
     metadat <- metadat_raw
@@ -257,6 +258,7 @@ na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
 
 datatable(match_info)
 ```
+Checking for metadata rows with no matching data...
 
 ```{r}
 #| echo: false
@@ -270,6 +272,24 @@ if(nrow(zero_matches)) {
 ```{r}
 if(nrow(zero_matches)) {
   knitr::kable(zero_matches)
+}
+```
+
+Checking for unused data files...
+
+```{r}
+#| echo: false
+#| output: asis
+
+unused_files <- setdiff(unique(dat$Data_file), unique(combined_dat$Data_file))
+if(length(unused_files)) {
+  cat("**<span style='color:red'>---> At least one data file was unused! <---</span>**\n\n")
+}
+```
+
+```{r}
+if(length(unused_files)) {
+  knitr::kable(data.frame(Data_file = unused_files))
 }
 ```
 
@@ -727,4 +747,3 @@ All done!
 ```{r}
 sessionInfo()
 ```
-
