@@ -9,6 +9,7 @@ params:
   metadata_folder: "data/"
   MSMT_LENGTH_SEC: 300
   DEAD_BAND_SEC: 10
+  SAVE_RESULTS_FIGURES: true
 date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
@@ -667,15 +668,17 @@ obs_fn <- mkfn("observations", "csv")
 message("Writing compiled observations dataset ", obs_fn, "...")
 write_csv(combined_dat, obs_fn)
 
-message("Writing plot outputs...", appendLF = FALSE)
-# Loop through each line, generating plot and filename and saving
-for(i in seq_len(nrow(results))) {
-  p <- plot_group(results[i,], combined_dat)
-  fn <- mkfn(paste("obs", results$Obs[i], results$Date[i],
-                   results$Plot[i], sep = "_"), "pdf")
-  ggsave(fn, plot = p, width = 8, height = 5)
+if(params$SAVE_RESULTS_FIGURES) {
+  message("Writing plot outputs...", appendLF = FALSE)
+  # Loop through each line, generating plot and filename and saving
+  for(i in seq_len(nrow(results))) {
+    p <- plot_group(results[i,], combined_dat)
+    fn <- mkfn(paste("obs", results$Obs[i], results$Date[i],
+                     results$Plot[i], sep = "_"), "pdf")
+    ggsave(fn, plot = p, width = 8, height = 5)
+  }
+  message("\t", i, " written")
 }
-message("\t", i, " written")
 ```
 
 ## Metadata
