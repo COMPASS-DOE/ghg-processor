@@ -9,7 +9,7 @@ params:
   metadata_folder: "data/"
   MSMT_LENGTH_SEC: 300
   DEAD_BAND_SEC: 10
-  SAVE_RESULTS_FIGURES: true
+  SAVE_RESULTS_FIGURES: false
 date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
@@ -621,8 +621,8 @@ This can indicate outlier problems or ebullition events.
 #| fig-width: 8
 #| fig-height: 6
 results$FLAG_ROBUST_DIV <- twocol_plot_and_flag(results,
-                                                "flux_estimate", 
-                                                "flux_estimate_robust",
+                                                "slope_estimate", 
+                                                "slope_estimate_robust",
                                                 add_1to1_line = TRUE)
 plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
 ```
@@ -704,50 +704,59 @@ Note this doesn't include any 'extra' fields in the metadata file.
 
 ```{r write-metadata}
 results_fields <- c(
-  "Obs" = "Observation number, i.e. order in metadata file(s)",
-  "TIMESTAMP" = "Original timestamp from analyzer",
-  "DEAD_BAND_SEC" = "Dead band used for flux calculation, s",
-  "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
-  "TZ" = "Time zone from analyzer",
-  "SN" = "Serial number from analyzer",
-  "Data_file" = "Data file name",
-  "r.squared" = "Linear flux model R2",
   "adj.r.squared" = "Linear flux model adjusted R2",
-  "sigma" = "Linear flux model sigma",
-  "statistic" = "Linear flux model F-statistic",
-  "p.value" = "Linear flux model p-value",
-  "df" = "Linear flux model degrees of freedom",
-  "logLik" = "Linear flux model log-likelihood",
   "AIC" = "Linear flux model AIC",
+  "Area" = "Area entry from metadata file, m2",
   "BIC" = "Linear flux model BIC",
+  "Data_file" = "Data file name",
+  "Date" = "Date entry from metadata file",
+  "DEAD_BAND_SEC" = "Dead band used for flux calculation, s",
+  "Dead_band" = "Dead band entry from metadata file, if present, s",
   "deviance" = "Linear flux model deviance",
   "df.residual" = "Linear flux model degrees of freedom",
-  "nobs" = "Linear flux model number of observations",
-  "Gas" = "Gas (CO2 or CH4)",
-  "Units" = "Flux units",
-  "flux_estimate" = "Slope of linear flux model, units/s",
-  "flux_std.error" = "Standard error of slope of linear flux model",
-  "flux_statistic" = "Statistic (t-value) of slope of linear flux model",
-  "flux_p.value" = "P-value of slope of linear flux model",
-  "flux_estimate_robust" = "Slope of robust flux model",
-  "r.squared_poly" = "Polynomial flux model R2",
-  "int_estimate" = "Intercept of linear flux model, units",
-  "int_std.error" = "Standard error of intercept of linear flux model",
-  "int_statistic" = "Statistic (t-value) of intercept of linear flux model",
-  "int_p.value" = "P-value of intercept of linear flux model",
-  "Date" = "Date entry from metadata file",
-  "Time_start" = "Time_start entry from metadata file",
-  "Plot" = "Plot entry from metadata file",
-  "Area" = "Area entry from metadata file, m2",
-  "Volume" = "Volume entry from metadata file, m3",
-  "Dead_band" = "Dead band entry from metadata file, if present, s",
-  "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
-  "Metadata_file" = "Metadata file name",
-  "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
+  "df" = "Linear flux model degrees of freedom",
   "FLAG_INTERCEPT" = "Flag: linear model intercept flagged as unusual",
+  "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model",
+  "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
   "FLAG_ROBUST_DIV" = "Flag: linear model flux diverges from robust model",
-  "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model"
+  "flux_estimate" = "Gas flux computed from slope of linear flux model",
+  "flux_std.error" = "Standard error of flux_estimate",
+  "flux_units" = "Units of flux_estimate and flux_std.error",
+  "Gas" = "Gas (CO2 or CH4)",
+  "int_estimate" = "Intercept of linear flux model, ppb (CH4) or ppm (CO2)",
+  "int_p.value" = "P-value of intercept of linear flux model",
+  "int_statistic" = "Statistic (t-value) of intercept of linear flux model",
+  "int_std.error" = "Standard error of intercept of linear flux model",
+  "logLik" = "Linear flux model log-likelihood",
+  "Metadata_file" = "Metadata file name",
+  "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
+  "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
+  "nobs" = "Linear flux model number of observations",
+  "Obs" = "Observation number, i.e. order in metadata file(s)",
+  "p.value" = "Linear flux model p-value",
+  "Plot" = "Plot entry from metadata file",
+  "r.squared_poly" = "Polynomial flux model R2",
+  "r.squared" = "Linear flux model R2",
+  "sigma" = "Linear flux model sigma",
+  "slope_estimate_robust" = "Slope of robust flux model, ppb (CH4) or ppm (CO2) /s",
+  "slope_estimate" = "Slope of linear flux model, ppb (CH4) or ppm (CO2) /s",
+  "slope_p.value" = "P-value of slope of linear flux model",
+  "slope_statistic" = "Statistic (t-value) of slope of linear flux model",
+  "slope_std.error" = "Standard error of slope of linear flux model",
+  "SN" = "Serial number from analyzer",
+  "statistic" = "Linear flux model F-statistic",
+  "Temp" = "Temperature entry from metadata file, degC",
+  "Time_start" = "Time_start entry from metadata file",
+  "TIMESTAMP" = "Original timestamp from analyzer",
+  "TZ" = "Time zone from analyzer",
+  "Volume" = "Volume entry from metadata file, m3"
 )
+
+# Which metadata names above don't occur in results?
+not_there <- names(results_fields)[!names(results_fields) %in% names(results)]
+if(length(not_there)) {
+  message("Field metadata descriptions NOT in results: ", paste(not_there, collapse = ", "))
+}
 
 results_meta <- data.frame(Field_name = names(results))
 results_meta$Description <- results_fields[results_meta$Field_name]
