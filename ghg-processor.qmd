@@ -347,19 +347,19 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
 ```{r plot-co2}
 #| fig-width: 8
 ggplot(combined_dat, aes(ELAPSED_SECS, CO2, group = Obs)) + 
-  geom_point(na.rm = TRUE) +
+  geom_point(na.rm = TRUE, color = "purple") +
   facet_wrap(~Plot, scales = "free") +
   # Plot both linear and curvilinear fits
-  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
+  #geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "black", linewidth = 0.5) +
   geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
   geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 
 ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) + 
-  geom_point(na.rm = TRUE) +
+  geom_point(na.rm = TRUE, color = "blue") +
   facet_wrap(~Plot, scales = "free") +
-  geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
-  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue") +
+  #geom_smooth(method = lm, formula = 'y ~ poly(x, 2)', na.rm = TRUE, linetype = 2, color = "blue") +
+  geom_smooth(method = lm, formula = 'y ~ x', na.rm = TRUE, color = "black", linewidth = 0.5) +
   geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
   geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 ```
@@ -409,7 +409,8 @@ fit_model <- function(df, depvar) {
                      DEAD_BAND_SEC = unique(df$DEAD_BAND_SEC),
                      MSMT_STOP_SEC = unique(df$MSMT_STOP_SEC),
                      TZ = df$TZ[1],
-                     SN = df$SN[1])
+                     SN = df$SN[1],
+                     Data_file = df$Data_file[1])
   # Remove the dead band data
   df <- df[df$ELAPSED_SECS > df$DEAD_BAND_SEC,]
   # Remove the after-end data
@@ -558,7 +559,8 @@ plot_group <- function(results, combined_dat) {
   model_data <- subset(plotdata_long, 
                        ELAPSED_SECS > DEAD_BAND_SEC & ELAPSED_SECS <= MSMT_STOP_SEC)
   
-  ggplot(plotdata_long, aes(ELAPSED_SECS, value, group = Obs)) + 
+  ggplot(plotdata_long, aes(ELAPSED_SECS, value, group = Obs, color = Gas)) + 
+    scale_color_manual(values = c("CH4" = "blue", "CO2" = "purple")) +
     geom_point(na.rm = TRUE) +
     geom_vline(aes(xintercept = DEAD_BAND_SEC), linetype = 2, color = "green") +
     geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red") +
@@ -566,7 +568,7 @@ plot_group <- function(results, combined_dat) {
                scales = "free") +
     theme(strip.text = element_text(size = 8)) +
     geom_smooth(data = model_data,
-                method = lm, formula = 'y ~ x', na.rm = TRUE, color = "blue")
+                method = lm, formula = 'y ~ x', na.rm = TRUE, color = "black")
 }
 ```
 
@@ -688,6 +690,7 @@ results_fields <- c(
   "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
   "TZ" = "Time zone from analyzer",
   "SN" = "Serial number from analyzer",
+  "Data_file" = "Data file name",
   "r.squared" = "Linear flux model R2",
   "adj.r.squared" = "Linear flux model adjusted R2",
   "sigma" = "Linear flux model sigma",
@@ -719,7 +722,7 @@ results_fields <- c(
   "Volume" = "Volume entry from metadata file, m3",
   "Dead_band" = "Dead band entry from metadata file, if present, s",
   "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
-  "File" = "Metadata file name",
+  "Metadata_file" = "Metadata file name",
   "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
   "FLAG_INTERCEPT" = "Flag: linear model intercept flagged as unusual",
   "FLAG_ROBUST_DIV" = "Flag: linear model flux diverges from robust model",
