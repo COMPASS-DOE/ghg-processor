@@ -539,7 +539,6 @@ twocol_plot_and_flag <- function(results, col1, col2,
     geom_point()
   if(add_1to1_line) p <- p + geom_abline()
   p <- p +
-    geom_smooth(method = lm, formula = 'y ~ x', linetype = 2) +
     geom_label_repel(aes(label = lab), size = 2.5, na.rm = TRUE) +
     facet_wrap(Gas ~., scales = "free", ncol = 1)
   print(p)
