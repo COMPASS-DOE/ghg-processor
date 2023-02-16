@@ -1,6 +1,6 @@
 # ghg-processor
 
-Processing code for Licor gas concentration data
+Processing code for LI-7810 gas concentration data
 
 Basic use: put data and metadata into the "data/" folder, open `ghg-processor.qmd`
 file and click "Render" in RStudio; this assumes you have the Quarto package
