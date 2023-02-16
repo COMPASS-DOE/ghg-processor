@@ -34,11 +34,15 @@ suppressPackageStartupMessages({
 })
 theme_set(theme_bw())
 
+# These columns are REQUIRED to be present in the metadata file(s)
+# (NB there are can be other columns present; they will be carried through to the results)
 METADATA_REQUIRED_FIELDS <- c("Date", "Time_start", "Plot", "Area", "Volume", "Temp")
 
+# Data files must end with ".txt" and may be in sub-folders
 data_files <- list.files(params$data_folder, 
                          pattern = "*txt$", 
                          full.names = TRUE, recursive = TRUE)
+# Metadata files must end with ".xlsx" and may be in sub-folders
 metadata_files <- list.files(params$metadata_folder, 
                              pattern = "*xlsx$", 
                              full.names = TRUE, recursive = TRUE)
@@ -54,19 +58,21 @@ Default dead band time is `r params$DEAD_BAND_SEC` seconds.
 
 Required metafields are: `r paste(METADATA_REQUIRED_FIELDS, collapse = ", ")`.
 
-Writing output to ``r normalizePath(params$output_folder)``.
+Writing output to `r normalizePath(params$output_folder)`.
 
-HTML outfile is ``r params$html_outfile``.
+HTML outfile is `r params$html_outfile`.
 
-Working directory is ``r getwd()``.
+Working directory is `r getwd()`.
 
 # Data
 
 ## Read in GHG data
 
 ```{r read-data}
-errors <- 0
+errors <- 0 # error count
 
+# Function to read a data file given by 'fn', filename
+# Returns NULL if there's an error reading
 read_ghg_data <- function(fn) {
   basefn <- basename(fn)
   message(Sys.time(), " Processing ", basefn)
@@ -89,6 +95,7 @@ read_ghg_data <- function(fn) {
     readr::read_table(I(dat_raw), na = "nan", guess_max = 1e4)
   })
   
+  # If the try() above succeeded, we haev a data frame and can process it 
   if(is.data.frame(dat)) {
     message("\tRead in ", nrow(dat), " rows of data, ", 
             min(dat$DATE), " to ", max(dat$DATE))
@@ -99,14 +106,14 @@ read_ghg_data <- function(fn) {
     # that's not needed right now; metadata time is guaranteed to be same
     dat$TIMESTAMP <- lubridate::ymd_hms(paste(dat$DATE, dat$TIME))
     dat$TZ <- tz
+    # Remove unneeded Licor DATE and TIME columns
     dat$DATE <- dat$TIME <- NULL
+    return(dat)
   } else {
     warning("File read error for ", basefn)
     errors <<- errors + 1
-    dat <- NULL
+    return(NULL)
   }
-
-  dat
 }
 
 dat <- lapply(data_files, read_ghg_data)
@@ -124,12 +131,13 @@ if(errors) cat("**<span style='color:red'>---> At least one error occurred! <---
 
 Total observations: `r format(nrow(dat), big.mark = ",")`
 
-
 ## Read in metadata
 
 ```{r read-metadata}
 errors <- 0
 
+# Function to read a metadata file given by 'fn', filename
+# Returns NULL if there's an error reading
 read_metadata <- function(fn) {
   basefn <- basename(fn)
   message(Sys.time(), " Processing ", basefn)
@@ -150,6 +158,7 @@ read_metadata <- function(fn) {
     metadat <- metadat_raw
     
     # Metadata files can, optionally, have "Dead_band" and "Msmt_length" columns
+    # If not present, insert those columns with NA values
     if(!"Dead_band" %in% names(metadat)) {
       metadat$Dead_band <- NA_real_
     } else {
@@ -203,6 +212,7 @@ for(i in seq_len(nrow(metadat))) {
                      Min_timestamp = NA,
                      Max_timestamp = NA)
   if(nrow(x)) {
+    # We have matched data!
     x$Obs <- i
     
     # Assign dead band: value given in Quarto params, but can be overridden in metadata    
@@ -219,12 +229,12 @@ for(i in seq_len(nrow(metadat))) {
       x$MSMT_STOP_SEC <- metadat$Msmt_stop[i]
     }
     
+    # Calculate ELAPSED_SECS, which is relative time (in s) since start of measurement
     x$ELAPSED_SECS <- time_length(interval(min(x$TIMESTAMP), x$TIMESTAMP), "seconds")
     info$Min_timestamp <- min(x$TIMESTAMP)
     info$Max_timestamp <- max(x$TIMESTAMP)
-#    message("\t", paste(unique(x$SN), collapse = ","), " from ",
- #           min(x$TIMESTAMP), " to ", max(x$TIMESTAMP))
   } else {
+    # No data matched the date and time given in this row of the metadata
     message("\tWARNING; file: ", metadat$File[i])
     zero_matches <- rbind(zero_matches, data.frame(File = metadat$File[i],
                                                    Row = i,
@@ -238,8 +248,8 @@ for(i in seq_len(nrow(metadat))) {
 # Combine all subsetted data together and merge with metadata 
 combined_dat <- do.call("rbind", matched_dat)
 combined_dat <- merge(metadat, combined_dat, by = "Obs")
-#rm(dat)
 
+# Compute a few basic stats about the combined data
 n <- nrow(combined_dat)
 neg_CO2 <- sum(combined_dat$CO2 < 0, na.rm = TRUE)
 na_CO2 <- sum(is.na(combined_dat$CO2), na.rm = TRUE)
@@ -262,7 +272,6 @@ if(nrow(zero_matches)) {
   knitr::kable(zero_matches)
 }
 ```
-
 
 ## CO2 and CH4 measurement data
 
@@ -312,7 +321,6 @@ ggplot(dat_small, aes(TIMESTAMP, CH4, color = Plot)) +
   geom_point(na.rm = TRUE) +
   coord_cartesian(ylim = ylim_ch4)
 ```
-
 
 ## Observations by plot and day
 
@@ -543,7 +551,6 @@ plot_group <- function(results, combined_dat) {
 }
 ```
 
-
 ## R2 distribution
 
 ```{r qaqc-r2}
@@ -720,3 +727,4 @@ All done!
 ```{r}
 sessionInfo()
 ```
+
