@@ -365,41 +365,11 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
   geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 ```
 
-## Unit conversion
-
-```{r unit-conversion}
-required_fields <- c("Volume", "Temp")
-if(!all(required_fields %in% names(combined_dat))) {
-  stop("We need volume ('Volume') and temperature ('Temp')")  
-}
-
-# CH4
-# Use known volume of chamber to convert ppb to liters:
-#   ppb CH4 * volume of chamber (m3) * 1000 L per m3
-CH4_L <- with(combined_dat, (CH4 / 1e9) * Volume * 1000)
-TEMP_K <- with(combined_dat, Temp + 273.15)
-AREA <- combined_dat$Area
-
-# Use ideal gas law to calculate µmol of CH4 per m2 ground:
-# (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
-combined_dat$`CH4 µmol/m2` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
-
-# CO2
-# Use known volume of chamber to convert ppm to liters:
-#   ppm CO2 * volume of chamber (m3) * 1000 L per m3
-CO2_L <- with(combined_dat, (CO2 / 1e6) * Volume * 1000)
-# Use ideal gas law to calculate mmol of CO2 per m2 ground:
-# (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
-combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
-
-summary(combined_dat[c("Temp", "CH4 µmol/m2", "CO2 mmol/m2")])
-```
-
 # Fluxes
 
 ## Flux computation
 
-```{r flux-computation}
+```{r model-fitting}
 
 model_fit_error <- FALSE
 # Fit a model to units of gas per day
@@ -411,33 +381,34 @@ fit_model <- function(df, depvar) {
                      MSMT_STOP_SEC = unique(df$MSMT_STOP_SEC),
                      TZ = df$TZ[1],
                      SN = df$SN[1],
-                     Data_file = df$Data_file[1])
+                     Data_file = df$Data_file[1],
+                     Gas = depvar,
+                     Volume = df$Volume[1],
+                     Temp = df$Temp[1],
+                     Area = df$Area[1]
+                     )
   # Remove the dead band data
   df <- df[df$ELAPSED_SECS > df$DEAD_BAND_SEC,]
   # Remove the after-end data
   df <- df[df$ELAPSED_SECS <= df$MSMT_STOP_SEC,]
   # Fit a linear model
-  df$ELAPSED_DAYS <- df[,"ELAPSED_SECS"] / 60 / 60 / 24
-  try(mod <- lm(df[,depvar] ~ df$ELAPSED_DAYS))
+  try(mod <- lm(df[,depvar] ~ df$ELAPSED_SECS))
   if(!exists("mod")) {
     message("ERROR fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
     model_fit_error <- model_fit_error & FALSE
   }
   # Model statistics
   model_stats <- glance(mod)
-  gas_units <- strsplit(depvar, " ", fixed = TRUE)[[1]]
-  model_stats$Gas <- gas_units[1]
-  model_stats$Units <- paste0(gas_units[2], "/day")
-  # Slope (flux) statistics
+  # Slope and intercept statistics
   slope_stats <- tidy(mod)[2,-1]
-  names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
+  names(slope_stats) <- paste("slope", names(slope_stats), sep = "_")
   intercept_stats <- tidy(mod)[1,-1]
   names(intercept_stats) <- paste("int", names(intercept_stats), sep = "_")
   # Add robust regression slope as a QA/QC check
-  robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_DAYS)
-  slope_stats$flux_estimate_robust <- coefficients(robust)[2]
+  robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_SECS)
+  slope_stats$slope_estimate_robust <- coefficients(robust)[2]
   # Add polynomial regression R2 as a QA/QC check
-  poly <- lm(df[,depvar] ~ poly(df$ELAPSED_DAYS, 3))
+  poly <- lm(df[,depvar] ~ poly(df$ELAPSED_SECS, 3))
   slope_stats$r.squared_poly <- summary(poly)$r.squared
   
   res <- cbind(info, model_stats, slope_stats, intercept_stats)
@@ -447,11 +418,10 @@ fit_model <- function(df, depvar) {
   res[numerics] <- round(res[numerics], 3)
   res
 }
-results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µmol/m2")
-results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
-results <- do.call("rbind", c(results_co2, results_ch4))
-# Re-merge with metadata
-results <- as_tibble(merge(results, metadat, by = "Obs"))
+results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4")
+results_ch4 <- do.call("rbind", results_ch4)
+results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2")
+results_co2 <- do.call("rbind", results_co2)
 ```
 
 ```{r}
@@ -459,6 +429,53 @@ results <- as_tibble(merge(results, metadat, by = "Obs"))
 #| output: asis
 
 if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn't fit! <---</span>**")
+```
+
+## Unit conversion
+
+```{r unit-conversion}
+required_fields <- c("Volume", "Temp")
+if(!all(required_fields %in% names(combined_dat))) {
+  stop("We need volume ('Volume') and temperature ('Temp')")  
+}
+
+# The slopes and their errors, from model-fitting above, are in ppb/s (CH4) 
+# and ppm/s (CO2). Convert them to µmol/m2/day and mmol/m2/day respectively.
+
+# CH4
+# Use known volume of chamber to convert ppb/s to liters/s:
+#   ppb CH4 * volume of chamber (m3) * 1000 L per m3
+CH4_slope_L <- with(results_ch4, (slope_estimate / 1e9) * Volume * 1000)
+CH4_slope_err_L <- with(results_ch4, (slope_std.error / 1e9) * Volume * 1000)
+
+# Use ideal gas law to calculate µmol of CH4 per m2 ground:
+# (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
+TEMP_K <- with(results_ch4, Temp + 273.15)
+AREA <- results_ch4$Area
+S_PER_DAY <- 60 * 60 * 24
+results_ch4$flux_estimate <- (1 * CH4_slope_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+results_ch4$flux_units <- "µmol/m2/day"
+results_ch4$flux_std.error <- (1 * CH4_slope_err_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+
+# CO2
+# Use known volume of chamber to convert ppm/s to liters/s:
+#   ppm CO2 * volume of chamber (m3) * 1000 L per m3
+CO2_slope_L <- with(results_co2, (slope_estimate / 1e9) * Volume * 1000)
+CO2_slope_err_L <- with(results_co2, (slope_std.error / 1e9) * Volume * 1000)
+# Use ideal gas law to calculate mmol of CO2 per m2 ground:
+# (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
+#combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
+TEMP_K <- with(results_co2, Temp + 273.15)
+AREA <- results_co2$Area
+results_co2$flux_estimate <- (1 * CO2_slope_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+results_co2$flux_units <- "mmol/m2/day"
+results_co2$flux_std.error <- (1 * CO2_slope_err_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+
+# Combine CH4 and CO2 results and re-merge with metadata
+results <- rbind(results_co2, results_ch4)
+# Re-merge with metadata
+results <- as_tibble(merge(results, metadat, by = c("Obs", "Area", "Temp", "Volume")))
+
 ```
 
 ## Flux summary
@@ -476,7 +493,7 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
   geom_errorbar(aes(ymin = flux_estimate - flux_std.error,
                     ymax = flux_estimate + flux_std.error)) +
   geom_line(aes(group = Plot)) +
-  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
+  facet_wrap(~paste(Gas, flux_units) + Site, scales = "free")
 ```
 
 # QA/QC
