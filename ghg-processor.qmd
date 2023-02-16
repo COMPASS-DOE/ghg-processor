@@ -478,7 +478,6 @@ results$Area <- results$Temp <- results$Volume <- NULL
 
 # Re-merge with metadata
 results <- as_tibble(merge(results, metadat, by = "Obs"))
-
 ```
 
 ## Flux summary
