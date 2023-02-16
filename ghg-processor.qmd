@@ -9,7 +9,7 @@ params:
   metadata_folder: "data/"
   MSMT_LENGTH_SEC: 300
   DEAD_BAND_SEC: 10
-  SAVE_RESULTS_FIGURES: false
+  SAVE_RESULTS_FIGURES: true
 date: now
 date-format: "YYYY-MM-DD HH:mm:ssZ"
 format: 
@@ -183,6 +183,8 @@ read_metadata <- function(fn) {
 
 metadat <- lapply(metadata_files, read_metadata)
 metadat <- do.call("rbind", metadat)
+if(!nrow(metadat)) stop("No metadata read!")
+
 metadat$Obs <- seq_len(nrow(metadat))
 ```
 
@@ -271,6 +273,7 @@ if(nrow(zero_matches)) {
 ```
 
 ```{r}
+# Table of zero-match data, if any
 if(nrow(zero_matches)) {
   knitr::kable(zero_matches)
 }
@@ -289,6 +292,7 @@ if(length(unused_files)) {
 ```
 
 ```{r}
+# Table of unused files, if any
 if(length(unused_files)) {
   knitr::kable(data.frame(Data_file = unused_files))
 }
@@ -303,6 +307,7 @@ Observations with missing CO2: `r na_CO2` (`r round(na_CO2 / n * 100, 0)`%)
 Distribution of CO2 values:
 
 ```{r}
+# Print distribution and (below) plot random subsample of CO2 data
 OVERALL_PLOT_N <- 300
 summary(combined_dat$CO2)
 ```
@@ -326,6 +331,7 @@ Observations with missing CH4: `r na_CH4` (`r round(na_CH4 / n * 100, 0)`%)
 Distribution of CH4 values:
 
 ```{r}
+# Print distribution and (below) plot random subsample of CH4 data
 summary(combined_dat$CH4)
 ```
 
