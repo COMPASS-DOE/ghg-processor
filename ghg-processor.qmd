@@ -367,7 +367,7 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
 
 # Fluxes
 
-## Flux computation
+## Model fitting
 
 ```{r model-fitting}
 
@@ -473,8 +473,11 @@ results_co2$flux_std.error <- (1 * CO2_slope_err_L) / (0.08206 * TEMP_K) * 1e6 /
 
 # Combine CH4 and CO2 results and re-merge with metadata
 results <- rbind(results_co2, results_ch4)
+# Drop columns we don't need because they'll come in with the merge
+results$Area <- results$Temp <- results$Volume <- NULL
+
 # Re-merge with metadata
-results <- as_tibble(merge(results, metadat, by = c("Obs", "Area", "Temp", "Volume")))
+results <- as_tibble(merge(results, metadat, by = "Obs"))
 
 ```
 
