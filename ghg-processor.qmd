@@ -22,18 +22,18 @@ editor: visual
 # Initializing
 
 ```{r setup}
-suppressPackageStartupMessages({
-  library(readr)
-  library(lubridate)
-  library(ggplot2)
-  library(ggrepel)
-  library(readxl)
-  library(broom)
-  library(DT)
-  library(MASS)
-  library(tidyr)
-})
+#| include: false
+
+library(readr)
+library(lubridate)
+library(ggplot2)
 theme_set(theme_bw())
+library(ggrepel)
+library(readxl)
+library(broom)
+library(DT)
+library(MASS)
+library(tidyr)
 
 # These columns are REQUIRED to be present in the metadata file(s)
 # (NB there are can be other columns present; they will be carried through to the results)
@@ -190,7 +190,7 @@ metadat$Obs <- seq_len(nrow(metadat))
 
 Errors: `r errors`
 
-Total rows: `r nrow(metadat)`
+Total metadata rows: `r nrow(metadat)`
 
 ## Metadata-data matching
 
@@ -261,6 +261,7 @@ na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
 
 datatable(match_info)
 ```
+
 Checking for metadata rows with no matching data...
 
 ```{r}
@@ -297,6 +298,8 @@ if(length(unused_files)) {
   knitr::kable(data.frame(Data_file = unused_files))
 }
 ```
+
+Total rows of combined data: `r format(nrow(combined_dat), big.mark = ",")`
 
 ## CO2 and CH4 measurement data
 
@@ -485,6 +488,8 @@ results$Area <- results$Temp <- results$Volume <- NULL
 # Re-merge with metadata
 results <- as_tibble(merge(results, metadat, by = "Obs"))
 ```
+
+Total rows of results: `r format(nrow(results), big.mark = ",")`
 
 ## Flux summary
 
