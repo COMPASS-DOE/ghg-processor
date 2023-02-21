@@ -22,18 +22,18 @@ editor: visual
 # Initializing
 
 ```{r setup}
-suppressPackageStartupMessages({
-  library(readr)
-  library(lubridate)
-  library(ggplot2)
-  library(ggrepel)
-  library(readxl)
-  library(broom)
-  library(DT)
-  library(MASS)
-  library(tidyr)
-})
+#| include: false
+
+library(readr)
+library(lubridate)
+library(ggplot2)
 theme_set(theme_bw())
+library(ggrepel)
+library(readxl)
+library(broom)
+library(DT)
+library(MASS)
+library(tidyr)
 
 # These columns are REQUIRED to be present in the metadata file(s)
 # (NB there are can be other columns present; they will be carried through to the results)
@@ -183,12 +183,14 @@ read_metadata <- function(fn) {
 
 metadat <- lapply(metadata_files, read_metadata)
 metadat <- do.call("rbind", metadat)
+if(!nrow(metadat)) stop("No metadata read!")
+
 metadat$Obs <- seq_len(nrow(metadat))
 ```
 
 Errors: `r errors`
 
-Total rows: `r nrow(metadat)`
+Total metadata rows: `r nrow(metadat)`
 
 ## Metadata-data matching
 
@@ -259,6 +261,7 @@ na_CH4 <- sum(is.na(combined_dat$CH4), na.rm = TRUE)
 
 datatable(match_info)
 ```
+
 Checking for metadata rows with no matching data...
 
 ```{r}
@@ -271,6 +274,7 @@ if(nrow(zero_matches)) {
 ```
 
 ```{r}
+# Table of zero-match data, if any
 if(nrow(zero_matches)) {
   knitr::kable(zero_matches)
 }
@@ -289,10 +293,13 @@ if(length(unused_files)) {
 ```
 
 ```{r}
+# Table of unused files, if any
 if(length(unused_files)) {
   knitr::kable(data.frame(Data_file = unused_files))
 }
 ```
+
+Total rows of combined data: `r format(nrow(combined_dat), big.mark = ",")`
 
 ## CO2 and CH4 measurement data
 
@@ -303,6 +310,7 @@ Observations with missing CO2: `r na_CO2` (`r round(na_CO2 / n * 100, 0)`%)
 Distribution of CO2 values:
 
 ```{r}
+# Print distribution and (below) plot random subsample of CO2 data
 OVERALL_PLOT_N <- 300
 summary(combined_dat$CO2)
 ```
@@ -326,6 +334,7 @@ Observations with missing CH4: `r na_CH4` (`r round(na_CH4 / n * 100, 0)`%)
 Distribution of CH4 values:
 
 ```{r}
+# Print distribution and (below) plot random subsample of CH4 data
 summary(combined_dat$CH4)
 ```
 
@@ -365,41 +374,11 @@ ggplot(combined_dat, aes(ELAPSED_SECS, CH4, group = Obs)) +
   geom_vline(aes(xintercept = MSMT_STOP_SEC), linetype = 2, color = "red")
 ```
 
-## Unit conversion
-
-```{r unit-conversion}
-required_fields <- c("Volume", "Temp")
-if(!all(required_fields %in% names(combined_dat))) {
-  stop("We need volume ('Volume') and temperature ('Temp')")  
-}
-
-# CH4
-# Use known volume of chamber to convert ppb to liters:
-#   ppb CH4 * volume of chamber (m3) * 1000 L per m3
-CH4_L <- with(combined_dat, (CH4 / 1e9) * Volume * 1000)
-TEMP_K <- with(combined_dat, Temp + 273.15)
-AREA <- combined_dat$Area
-
-# Use ideal gas law to calculate µmol of CH4 per m2 ground:
-# (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
-combined_dat$`CH4 µmol/m2` <- (1 * CH4_L) / (0.08206 * TEMP_K) * 1e6 / AREA
-
-# CO2
-# Use known volume of chamber to convert ppm to liters:
-#   ppm CO2 * volume of chamber (m3) * 1000 L per m3
-CO2_L <- with(combined_dat, (CO2 / 1e6) * Volume * 1000)
-# Use ideal gas law to calculate mmol of CO2 per m2 ground:
-# (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
-combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
-
-summary(combined_dat[c("Temp", "CH4 µmol/m2", "CO2 mmol/m2")])
-```
-
 # Fluxes
 
-## Flux computation
+## Model fitting
 
-```{r flux-computation}
+```{r model-fitting}
 
 model_fit_error <- FALSE
 # Fit a model to units of gas per day
@@ -411,33 +390,34 @@ fit_model <- function(df, depvar) {
                      MSMT_STOP_SEC = unique(df$MSMT_STOP_SEC),
                      TZ = df$TZ[1],
                      SN = df$SN[1],
-                     Data_file = df$Data_file[1])
+                     Data_file = df$Data_file[1],
+                     Gas = depvar,
+                     Volume = df$Volume[1],
+                     Temp = df$Temp[1],
+                     Area = df$Area[1]
+                     )
   # Remove the dead band data
   df <- df[df$ELAPSED_SECS > df$DEAD_BAND_SEC,]
   # Remove the after-end data
   df <- df[df$ELAPSED_SECS <= df$MSMT_STOP_SEC,]
   # Fit a linear model
-  df$ELAPSED_DAYS <- df[,"ELAPSED_SECS"] / 60 / 60 / 24
-  try(mod <- lm(df[,depvar] ~ df$ELAPSED_DAYS))
+  try(mod <- lm(df[,depvar] ~ df$ELAPSED_SECS))
   if(!exists("mod")) {
     message("ERROR fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
     model_fit_error <- model_fit_error & FALSE
   }
   # Model statistics
   model_stats <- glance(mod)
-  gas_units <- strsplit(depvar, " ", fixed = TRUE)[[1]]
-  model_stats$Gas <- gas_units[1]
-  model_stats$Units <- paste0(gas_units[2], "/day")
-  # Slope (flux) statistics
+  # Slope and intercept statistics
   slope_stats <- tidy(mod)[2,-1]
-  names(slope_stats) <- paste("flux", names(slope_stats), sep = "_")
+  names(slope_stats) <- paste("slope", names(slope_stats), sep = "_")
   intercept_stats <- tidy(mod)[1,-1]
   names(intercept_stats) <- paste("int", names(intercept_stats), sep = "_")
   # Add robust regression slope as a QA/QC check
-  robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_DAYS)
-  slope_stats$flux_estimate_robust <- coefficients(robust)[2]
+  robust <- MASS::rlm(df[,depvar] ~ df$ELAPSED_SECS)
+  slope_stats$slope_estimate_robust <- coefficients(robust)[2]
   # Add polynomial regression R2 as a QA/QC check
-  poly <- lm(df[,depvar] ~ poly(df$ELAPSED_DAYS, 3))
+  poly <- lm(df[,depvar] ~ poly(df$ELAPSED_SECS, 3))
   slope_stats$r.squared_poly <- summary(poly)$r.squared
   
   res <- cbind(info, model_stats, slope_stats, intercept_stats)
@@ -447,11 +427,10 @@ fit_model <- function(df, depvar) {
   res[numerics] <- round(res[numerics], 3)
   res
 }
-results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4 µmol/m2")
-results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2 mmol/m2")
-results <- do.call("rbind", c(results_co2, results_ch4))
-# Re-merge with metadata
-results <- as_tibble(merge(results, metadat, by = "Obs"))
+results_ch4 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CH4")
+results_ch4 <- do.call("rbind", results_ch4)
+results_co2 <- lapply(split(combined_dat, combined_dat$Obs), fit_model, "CO2")
+results_co2 <- do.call("rbind", results_co2)
 ```
 
 ```{r}
@@ -460,6 +439,57 @@ results <- as_tibble(merge(results, metadat, by = "Obs"))
 
 if(model_fit_error) cat("**<span style='color:red'>---> At least one model didn't fit! <---</span>**")
 ```
+
+## Unit conversion
+
+```{r unit-conversion}
+required_fields <- c("Volume", "Temp")
+if(!all(required_fields %in% names(combined_dat))) {
+  stop("We need volume ('Volume') and temperature ('Temp')")  
+}
+
+# The slopes and their errors, from model-fitting above, are in ppb/s (CH4) 
+# and ppm/s (CO2). Convert them to µmol/m2/day and mmol/m2/day respectively.
+
+# CH4
+# Use known volume of chamber to convert ppb/s to liters/s:
+#   ppb CH4 * volume of chamber (m3) * 1000 L per m3
+CH4_slope_L <- with(results_ch4, (slope_estimate / 1e9) * Volume * 1000)
+CH4_slope_err_L <- with(results_ch4, (slope_std.error / 1e9) * Volume * 1000)
+
+# Use ideal gas law to calculate µmol of CH4 per m2 ground:
+# (atm pressure * L CH4) / (R [in L*atm / T[K] * mol] * T[K]) * 10^6 µmol/mol
+TEMP_K <- with(results_ch4, Temp + 273.15)
+AREA <- results_ch4$Area
+S_PER_DAY <- 60 * 60 * 24
+results_ch4$flux_estimate <- (1 * CH4_slope_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+results_ch4$flux_units <- "µmol/m2/day"
+results_ch4$flux_std.error <- (1 * CH4_slope_err_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+
+# CO2
+# Use known volume of chamber to convert ppm/s to liters/s:
+#   ppm CO2 * volume of chamber (m3) * 1000 L per m3
+CO2_slope_L <- with(results_co2, (slope_estimate / 1e9) * Volume * 1000)
+CO2_slope_err_L <- with(results_co2, (slope_std.error / 1e9) * Volume * 1000)
+# Use ideal gas law to calculate mmol of CO2 per m2 ground:
+# (atm pressure * L CO2) / (R [in L*atm / T[K] * mol] * T[K]) * 10^3 mmol/mol
+#combined_dat$`CO2 mmol/m2` <- (1 * CO2_L) / (0.08206 * TEMP_K) * 1e3 / AREA
+TEMP_K <- with(results_co2, Temp + 273.15)
+AREA <- results_co2$Area
+results_co2$flux_estimate <- (1 * CO2_slope_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+results_co2$flux_units <- "mmol/m2/day"
+results_co2$flux_std.error <- (1 * CO2_slope_err_L) / (0.08206 * TEMP_K) * 1e6 / AREA * S_PER_DAY
+
+# Combine CH4 and CO2 results and re-merge with metadata
+results <- rbind(results_co2, results_ch4)
+# Drop columns we don't need because they'll come in with the merge
+results$Area <- results$Temp <- results$Volume <- NULL
+
+# Re-merge with metadata
+results <- as_tibble(merge(results, metadat, by = "Obs"))
+```
+
+Total rows of results: `r format(nrow(results), big.mark = ",")`
 
 ## Flux summary
 
@@ -476,7 +506,7 @@ ggplot(results, aes(x = TIMESTAMP, y = flux_estimate, color = Plot)) +
   geom_errorbar(aes(ymin = flux_estimate - flux_std.error,
                     ymax = flux_estimate + flux_std.error)) +
   geom_line(aes(group = Plot)) +
-  facet_wrap(~paste(Gas, Units) + Site, scales = "free")
+  facet_wrap(~paste(Gas, flux_units) + Site, scales = "free")
 ```
 
 # QA/QC
@@ -604,8 +634,8 @@ This can indicate outlier problems or ebullition events.
 #| fig-width: 8
 #| fig-height: 6
 results$FLAG_ROBUST_DIV <- twocol_plot_and_flag(results,
-                                                "flux_estimate", 
-                                                "flux_estimate_robust",
+                                                "slope_estimate", 
+                                                "slope_estimate_robust",
                                                 add_1to1_line = TRUE)
 plot_group(subset(results, FLAG_ROBUST_DIV), combined_dat)
 ```
@@ -687,50 +717,59 @@ Note this doesn't include any 'extra' fields in the metadata file.
 
 ```{r write-metadata}
 results_fields <- c(
-  "Obs" = "Observation number, i.e. order in metadata file(s)",
-  "TIMESTAMP" = "Original timestamp from analyzer",
-  "DEAD_BAND_SEC" = "Dead band used for flux calculation, s",
-  "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
-  "TZ" = "Time zone from analyzer",
-  "SN" = "Serial number from analyzer",
-  "Data_file" = "Data file name",
-  "r.squared" = "Linear flux model R2",
   "adj.r.squared" = "Linear flux model adjusted R2",
-  "sigma" = "Linear flux model sigma",
-  "statistic" = "Linear flux model F-statistic",
-  "p.value" = "Linear flux model p-value",
-  "df" = "Linear flux model degrees of freedom",
-  "logLik" = "Linear flux model log-likelihood",
   "AIC" = "Linear flux model AIC",
+  "Area" = "Area entry from metadata file, m2",
   "BIC" = "Linear flux model BIC",
+  "Data_file" = "Data file name",
+  "Date" = "Date entry from metadata file",
+  "DEAD_BAND_SEC" = "Dead band used for flux calculation, s",
+  "Dead_band" = "Dead band entry from metadata file, if present, s",
   "deviance" = "Linear flux model deviance",
   "df.residual" = "Linear flux model degrees of freedom",
-  "nobs" = "Linear flux model number of observations",
-  "Gas" = "Gas (CO2 or CH4)",
-  "Units" = "Flux units",
-  "flux_estimate" = "Slope of linear flux model, units/s",
-  "flux_std.error" = "Standard error of slope of linear flux model",
-  "flux_statistic" = "Statistic (t-value) of slope of linear flux model",
-  "flux_p.value" = "P-value of slope of linear flux model",
-  "flux_estimate_robust" = "Slope of robust flux model",
-  "r.squared_poly" = "Polynomial flux model R2",
-  "int_estimate" = "Intercept of linear flux model, units",
-  "int_std.error" = "Standard error of intercept of linear flux model",
-  "int_statistic" = "Statistic (t-value) of intercept of linear flux model",
-  "int_p.value" = "P-value of intercept of linear flux model",
-  "Date" = "Date entry from metadata file",
-  "Time_start" = "Time_start entry from metadata file",
-  "Plot" = "Plot entry from metadata file",
-  "Area" = "Area entry from metadata file, m2",
-  "Volume" = "Volume entry from metadata file, m3",
-  "Dead_band" = "Dead band entry from metadata file, if present, s",
-  "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
-  "Metadata_file" = "Metadata file name",
-  "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
+  "df" = "Linear flux model degrees of freedom",
   "FLAG_INTERCEPT" = "Flag: linear model intercept flagged as unusual",
+  "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model",
+  "FLAG_R2" = "Flag: linear model R2 flagged as unusual",
   "FLAG_ROBUST_DIV" = "Flag: linear model flux diverges from robust model",
-  "FLAG_POLY_DIV" = "Flag: linear model R2 diverges from polynomial model"
+  "flux_estimate" = "Gas flux computed from slope of linear flux model",
+  "flux_std.error" = "Standard error of flux_estimate",
+  "flux_units" = "Units of flux_estimate and flux_std.error",
+  "Gas" = "Gas (CO2 or CH4)",
+  "int_estimate" = "Intercept of linear flux model, ppb (CH4) or ppm (CO2)",
+  "int_p.value" = "P-value of intercept of linear flux model",
+  "int_statistic" = "Statistic (t-value) of intercept of linear flux model",
+  "int_std.error" = "Standard error of intercept of linear flux model",
+  "logLik" = "Linear flux model log-likelihood",
+  "Metadata_file" = "Metadata file name",
+  "MSMT_STOP_SEC" = "Measurement stop used for flux calculation, s",
+  "Msmt_stop" = "Measurement stop entry from metadata file, if present, s",
+  "nobs" = "Linear flux model number of observations",
+  "Obs" = "Observation number, i.e. order in metadata file(s)",
+  "p.value" = "Linear flux model p-value",
+  "Plot" = "Plot entry from metadata file",
+  "r.squared_poly" = "Polynomial flux model R2",
+  "r.squared" = "Linear flux model R2",
+  "sigma" = "Linear flux model sigma",
+  "slope_estimate_robust" = "Slope of robust flux model, ppb (CH4) or ppm (CO2) /s",
+  "slope_estimate" = "Slope of linear flux model, ppb (CH4) or ppm (CO2) /s",
+  "slope_p.value" = "P-value of slope of linear flux model",
+  "slope_statistic" = "Statistic (t-value) of slope of linear flux model",
+  "slope_std.error" = "Standard error of slope of linear flux model",
+  "SN" = "Serial number from analyzer",
+  "statistic" = "Linear flux model F-statistic",
+  "Temp" = "Temperature entry from metadata file, degC",
+  "Time_start" = "Time_start entry from metadata file",
+  "TIMESTAMP" = "Original timestamp from analyzer",
+  "TZ" = "Time zone from analyzer",
+  "Volume" = "Volume entry from metadata file, m3"
 )
+
+# Which metadata names above don't occur in results?
+not_there <- names(results_fields)[!names(results_fields) %in% names(results)]
+if(length(not_there)) {
+  message("Field metadata descriptions NOT in results: ", paste(not_there, collapse = ", "))
+}
 
 results_meta <- data.frame(Field_name = names(results))
 results_meta$Description <- results_fields[results_meta$Field_name]

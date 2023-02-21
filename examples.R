@@ -8,7 +8,8 @@ library(quarto)
 quarto_render("ghg-processor.qmd")
 # This script could now read in the results from the output/ folder
 
-# Run it but don't generate individual graphs (which is a slow step)
+# Run but don't generate individual graphs (which is a slow step), overriding
+# the default ("SAVE_RESULTS_FIGURES: true"; see line 12 of ghg-processor.qmd)
 quarto_render("ghg-processor.qmd",
               execute_params = list(SAVE_RESULTS_FIGURES = 0))
 
