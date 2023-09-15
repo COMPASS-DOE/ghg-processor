@@ -93,7 +93,7 @@ read_ghg_data <- function(fn) {
   # \t""\t, causing a read error. Replace these instances
   dat_raw <- gsub("\t\t", "\tnan\t", dat_raw, fixed = TRUE)
   dat <- try({
-    readr::read_table(I(dat_raw), na = "nan", guess_max = 1e4)
+    readr::read_table(I(dat_raw), na = "nan", guess_max = 1e5)
   })
   
   # If the try() above succeeded, we haev a data frame and can process it 
