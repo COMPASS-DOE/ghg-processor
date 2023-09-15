@@ -4,9 +4,9 @@ author: "Bond-Lamberty / Wilson"
 title-block-banner: true
 params:
   html_outfile: "ghg-processor.html"
-  data_folder: "data/"
+  data_folder: "data-peixoto/"
   output_folder: "output/"
-  metadata_folder: "data/"
+  metadata_folder: "data-peixoto/"
   MSMT_LENGTH_SEC: 300
   DEAD_BAND_SEC: 10
   SAVE_RESULTS_FIGURES: true
@@ -41,7 +41,7 @@ METADATA_REQUIRED_FIELDS <- c("Date", "Time_start", "Plot", "Area", "Volume", "T
 
 # Data files must end with ".txt" and may be in sub-folders
 data_files <- list.files(params$data_folder, 
-                         pattern = "*txt$", 
+                         pattern = "*data$", 
                          full.names = TRUE, recursive = TRUE)
 # Metadata files must end with ".xlsx" and may be in sub-folders
 metadata_files <- list.files(params$metadata_folder, 
@@ -239,11 +239,11 @@ for(i in seq_len(nrow(metadat))) {
     info$Max_timestamp <- max(x$TIMESTAMP)
   } else {
     # No data matched the date and time given in this row of the metadata
-    message("\tWARNING; file: ", metadat$File[i])
-    zero_matches <- rbind(zero_matches, data.frame(File = metadat$File[i],
-                                                   Row = i,
-                                                   Date = metadat$Date[i],
-                                                   Time_start = metadat$Time_start[i]))
+    zero_matches <- rbind(zero_matches, 
+                          data.frame(File = metadat$Metadata_file[i],
+                                     Row = i,
+                                     Date = metadat$Date[i],
+                                     Time_start = format(metadat$Time_start[i], format = "%H:%M:%S")))
   }
   match_info <- rbind(match_info, info)
   matched_dat[[i]] <- x
@@ -270,6 +270,11 @@ Checking for metadata rows with no matching data...
 
 if(nrow(zero_matches)) {
   cat("**<span style='color:red'>---> At least one metadata row had no matching data! <---</span>**\n\n")
+}
+
+if(n == 0) { # no matched data at all
+  cat("**<span style='color:red'>---> No data were matched at all! <---</span>**\n\n")
+  knitr::knit_exit()
 }
 ```
 
@@ -405,6 +410,7 @@ fit_model <- function(df, depvar) {
   if(!exists("mod")) {
     message("ERROR fitting model for obs ", df$Obs[1], " ", df$Plot[1], " ", depvar)
     model_fit_error <- model_fit_error & FALSE
+    return(NULL)
   }
   # Model statistics
   model_stats <- glance(mod)
