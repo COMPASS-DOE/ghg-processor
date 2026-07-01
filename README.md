@@ -1,9 +1,5 @@
 # ghg-processor
 
-## This repository has been archived and is no longer maintained.
-## The code is provided for historical reference and may contain unpatched or unknown vulnerabilities.
-## It should not be used in production systems.
-
 [Ben Bond-Lamberty](https://scholar.google.com/citations?user=9ODDdTAAAAAJ) and [Stephanie J. Wilson](https://scholar.google.com/citations?hl=en&user=s27RJ-oAAAAJ), 2023
 
 Processing code for LI-7810 gas concentration data
